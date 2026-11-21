@@ -2,6 +2,7 @@
 
 use crate::input::Controls;
 use crate::math::{Aabb, Rng, approach, approach_angle, dir_from_angles, wrap_angle, yaw_of};
+use crate::props_layout;
 use crate::tank::{self, Tank};
 use crate::turret_layout;
 use raylib::prelude::Vector3;
@@ -10,7 +11,9 @@ pub const ARENA_HALF: f32 = 90.0;
 pub const SHELL_SPEED: f32 = 80.0;
 pub const SHELL_LIFE: f32 = 3.0;
 pub const MAX_AIM_RANGE: f32 = 250.0;
-pub const TARGET_COUNT: usize = 10;
+pub const TARGET_COUNT: usize = 14;
+pub const ROCK_COUNT: usize = 9;
+pub const BARRIER_COUNT: usize = 10;
 pub const TARGET_HP: i32 = 3;
 pub const TARGET_RESPAWN: f32 = 4.0;
 
@@ -47,6 +50,64 @@ pub struct Target {
 impl Target {
     pub fn alive(&self) -> bool {
         self.respawn.is_none()
+    }
+
+    /// A quarter turn picked from the position, so crates do not all face the same way.
+    pub fn yaw(&self) -> f32 {
+        let k = (self.aabb.center.x * 7.0 + self.aabb.center.z * 13.0).abs() as i32 % 4;
+        k as f32 * std::f32::consts::FRAC_PI_2
+    }
+}
+
+/// A crate's hit box when its base sits at `base`.
+pub fn crate_box(base: Vector3) -> Aabb {
+    Aabb {
+        center: base + props_layout::CRATE_CENTER,
+        half: props_layout::CRATE_HALF,
+    }
+}
+
+fn overlaps(a: &Aabb, b: &Aabb) -> bool {
+    (a.center.x - b.center.x).abs() < a.half.x + b.half.x
+        && (a.center.z - b.center.z).abs() < a.half.z + b.half.z
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum ObstacleKind {
+    Rock,
+    Barrier,
+}
+
+/// Fixed cover that shells cannot destroy.
+pub struct Obstacle {
+    pub kind: ObstacleKind,
+    /// Base on the ground.
+    pub pos: Vector3,
+    /// Quarter turns (0..4), so the hit box stays axis-aligned.
+    pub quarter: u8,
+}
+
+impl Obstacle {
+    pub fn yaw(&self) -> f32 {
+        self.quarter as f32 * std::f32::consts::FRAC_PI_2
+    }
+
+    pub fn aabb(&self) -> Aabb {
+        let (c, h) = match self.kind {
+            ObstacleKind::Rock => (props_layout::ROCK_CENTER, props_layout::ROCK_HALF),
+            ObstacleKind::Barrier => (props_layout::BARRIER_CENTER, props_layout::BARRIER_HALF),
+        };
+        // Same rotation as raylib's yaw around +Y: (x, z) -> (x cos + z sin, -x sin + z cos).
+        let (c, h) = match self.quarter % 4 {
+            0 => (c, h),
+            1 => (Vector3::new(c.z, c.y, -c.x), Vector3::new(h.z, h.y, h.x)),
+            2 => (Vector3::new(-c.x, c.y, -c.z), h),
+            _ => (Vector3::new(-c.z, c.y, c.x), Vector3::new(h.z, h.y, h.x)),
+        };
+        Aabb {
+            center: self.pos + c,
+            half: h,
+        }
     }
 }
 
@@ -156,6 +217,7 @@ pub struct World {
     pub hp: f32,
     pub camera: OrbitCamera,
     pub targets: Vec<Target>,
+    pub obstacles: Vec<Obstacle>,
     pub enemies: Vec<Enemy>,
     pub shells: Vec<Shell>,
     pub explosions: Vec<Explosion>,
@@ -183,6 +245,7 @@ impl World {
                 distance: 13.0,
             },
             targets: Vec::new(),
+            obstacles: Vec::new(),
             enemies: Vec::new(),
             shells: Vec::new(),
             explosions: Vec::new(),
@@ -196,6 +259,16 @@ impl World {
             seed,
             rng: Rng::new(seed),
         };
+        for k in 0..(ROCK_COUNT + BARRIER_COUNT) {
+            let kind = if k < ROCK_COUNT {
+                ObstacleKind::Rock
+            } else {
+                ObstacleKind::Barrier
+            };
+            let pos = w.random_spot(14.0, 80.0, 9.0);
+            let quarter = (w.rng.next_f32() * 4.0) as u8 % 4;
+            w.obstacles.push(Obstacle { kind, pos, quarter });
+        }
         for _ in 0..TARGET_COUNT {
             let aabb = w.random_target_box();
             w.targets.push(Target {
@@ -236,22 +309,55 @@ impl World {
                 .enemies
                 .iter()
                 .all(|e| e.pos.distance(center) > clearance + 4.0)
+            && self
+                .obstacles
+                .iter()
+                .all(|o| o.aabb().center.distance(center) > clearance)
+    }
+
+    fn random_spot(&mut self, min_dist: f32, max_dist: f32, clearance: f32) -> Vector3 {
+        loop {
+            let angle = self.rng.range(0.0, std::f32::consts::TAU);
+            let dist = self.rng.range(min_dist, max_dist);
+            let p = Vector3::new(angle.sin() * dist, 0.0, angle.cos() * dist);
+            let inside = p.x.abs() < ARENA_HALF - 6.0 && p.z.abs() < ARENA_HALF - 6.0;
+            if inside && p.distance(self.tank.pos) > 10.0 && self.spot_is_clear(p, clearance) {
+                return p;
+            }
+        }
     }
 
     fn random_target_box(&mut self) -> Aabb {
-        loop {
-            let angle = self.rng.range(0.0, std::f32::consts::TAU);
-            let dist = self.rng.range(18.0, 70.0);
-            let half = Vector3::new(
-                self.rng.range(1.0, 2.2),
-                self.rng.range(1.0, 2.5),
-                self.rng.range(1.0, 2.2),
-            );
-            let center = Vector3::new(angle.sin() * dist, half.y, angle.cos() * dist);
-            if center.distance(self.tank.pos) > 12.0 && self.spot_is_clear(center, 7.0) {
-                return Aabb { center, half };
+        // Half the crates are stacked against cover, the rest stand alone.
+        if !self.obstacles.is_empty() && self.rng.next_f32() < 0.5 {
+            for _ in 0..12 {
+                let k = (self.rng.next_f32() * self.obstacles.len() as f32) as usize
+                    % self.obstacles.len();
+                let o = self.obstacles[k].aabb();
+                let side = self.rng.range(0.0, std::f32::consts::TAU);
+                let reach = o.half.x.max(o.half.z) + props_layout::CRATE_HALF.x + 0.3;
+                let base = Vector3::new(
+                    o.center.x + side.sin() * reach,
+                    0.0,
+                    o.center.z + side.cos() * reach,
+                );
+                let b = crate_box(base);
+                let free = self
+                    .targets
+                    .iter()
+                    .all(|t| t.aabb.center.distance(b.center) > 3.0)
+                    && self.obstacles.iter().all(|ob| !overlaps(&ob.aabb(), &b))
+                    && self.enemies.iter().all(|en| !overlaps(&en.aabb(), &b))
+                    && base.distance(self.tank.pos) > 10.0
+                    && base.x.abs() < ARENA_HALF - 3.0
+                    && base.z.abs() < ARENA_HALF - 3.0;
+                if free {
+                    return b;
+                }
             }
         }
+        let base = self.random_spot(18.0, 75.0, 5.0);
+        crate_box(base)
     }
 
     fn random_enemy_spot(&mut self) -> Vector3 {
@@ -279,6 +385,11 @@ impl World {
         }
         for e in self.enemies.iter().filter(|e| e.alive()) {
             if let Some(d) = e.aabb().ray_hit(origin, dir) {
+                best = best.min(d);
+            }
+        }
+        for o in &self.obstacles {
+            if let Some(d) = o.aabb().ray_hit(origin, dir) {
                 best = best.min(d);
             }
         }
@@ -354,6 +465,7 @@ impl World {
             .filter(|t| t.alive())
             .map(|t| t.aabb)
             .chain(self.enemies.iter().filter(|e| e.alive()).map(|e| e.aabb()))
+            .chain(self.obstacles.iter().map(|o| o.aabb()))
             .collect();
         for b in blockers {
             let pushed = b.push_circle_out(self.tank.pos, tank::COLLISION_RADIUS);
@@ -460,7 +572,11 @@ impl World {
                 .targets
                 .iter()
                 .filter(|t| t.alive())
-                .any(|t| t.aabb.ray_hit(muzzle, dir).is_some_and(|d| d < to_player));
+                .any(|t| t.aabb.ray_hit(muzzle, dir).is_some_and(|d| d < to_player))
+                || self
+                    .obstacles
+                    .iter()
+                    .any(|o| o.aabb().ray_hit(muzzle, dir).is_some_and(|d| d < to_player));
             if blocked {
                 self.enemies[i].reload = 0.6;
                 continue;
@@ -516,6 +632,11 @@ impl World {
             for (ti, t) in self.targets.iter().enumerate().filter(|(_, t)| t.alive()) {
                 if let Some(d) = t.aabb.ray_hit(start, dir) {
                     consider(d, Hit::Crate(ti));
+                }
+            }
+            for o in &self.obstacles {
+                if let Some(d) = o.aabb().ray_hit(start, dir) {
+                    consider(d, Hit::Ground);
                 }
             }
             if owner == Owner::Player {
@@ -664,6 +785,7 @@ mod tests {
         let mut w = World::new(seed);
         w.targets.clear();
         w.enemies.clear();
+        w.obstacles.clear();
         w
     }
 

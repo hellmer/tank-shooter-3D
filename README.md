@@ -37,7 +37,7 @@ pequeño marca dónde iría el disparo ahora mismo; se pone cian cuando el cañ�
 - `src/world.rs`: estado del juego (cajas, enemigos, proyectiles, restos, vida, cámara) y colisiones.
 - `src/render.rs`: dibujo del mundo y el HUD.
 - `src/models.rs`: carga los GLB del tanque y de la torreta enemiga y los dibuja con sus piezas animadas.
-- `src/model_layout.rs`, `src/turret_layout.rs`: generados por el exportador; no se editan a mano.
+- `src/model_layout.rs`, `src/turret_layout.rs`, `src/props_layout.rs`: generados por el exportador; no se editan a mano.
 - `src/math.rs`: ángulos, cajas y rayos.
 
 ## Enemigos
@@ -51,6 +51,8 @@ quita 12 de blindaje; a 0 el tanque queda destruido y puedes volver a empezar.
 
 - `art/tanque/model.py`: el tanque en 3dixel (cubos, pivotes y texturas). Casco, torreta, cañón y cada rueda son grupos separados.
 - `art/torreta/model.py`: la torreta enemiga (base, cabeza y cañones dobles).
+- `art/props/model.py`: escenario: caja militar (destructible), rocas y barrera de hormigón (cobertura fija; las barreras también cierran la arena).
+- `art/terreno/ground.py`: pinta la textura del suelo (`assets/textures/ground.png`, 64x64 que se repite cada 6,4 m).
 - `art/common/paint.py`: paletas y pintores de textura compartidos.
 - `tools/3dixel/`: copia del núcleo de 3dixel (licencia MIT) para poder renderizar y exportar sin nada más.
 - `tools/export_glb.py`: exporta las piezas de cada modelo a GLB y genera un archivo Rust con sus pivotes. Cada `model.py` dice qué exportar con `exports()` y `layout()`.
@@ -61,6 +63,8 @@ Después de cambiar el modelo (hace falta Python 3 con numpy y Pillow):
 python3 tools/3dixel/core/render.py art/tanque --out /tmp --name tanque   # vistas previas
 python3 tools/export_glb.py art/tanque/model.py assets/models/tank --layout src/model_layout.rs
 python3 tools/export_glb.py art/torreta/model.py assets/models/turret --layout src/turret_layout.rs
+python3 tools/export_glb.py art/props/model.py assets/models/props --layout src/props_layout.rs
+python3 art/terreno/ground.py assets/textures/ground.png
 ```
 
 En el juego las tiras cian y las toberas brillan sin depender de la luz (textura emisiva y el shader `assets/shaders/lit.*`), y las ruedas giran según lo que avanza el tanque.

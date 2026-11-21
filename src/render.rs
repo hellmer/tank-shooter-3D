@@ -178,45 +178,18 @@ pub fn draw_tank<D: RaylibDraw3D>(d: &mut D, t: &Tank) {
 }
 
 pub fn draw_world<D: RaylibDraw3D>(d: &mut D, w: &World, mut models: Option<&mut Models>) {
-    // Ground and arena edge.
-    d.draw_plane(
-        Vector3::zero(),
-        Vector2::new(ARENA_HALF * 2.0, ARENA_HALF * 2.0),
-        GROUND,
-    );
-    // Lifted a little so the grid does not flicker against the ground plane.
-    with_transform(
-        Vector3::new(0.0, 0.03, 0.0),
-        0.0,
-        Vector3::new(0.0, 1.0, 0.0),
-        || d.draw_grid(90, 2.0),
-    );
-    for (x, z, sx, sz) in [
-        (0.0, ARENA_HALF, ARENA_HALF * 2.0, 1.0),
-        (0.0, -ARENA_HALF, ARENA_HALF * 2.0, 1.0),
-        (ARENA_HALF, 0.0, 1.0, ARENA_HALF * 2.0),
-        (-ARENA_HALF, 0.0, 1.0, ARENA_HALF * 2.0),
-    ] {
-        block(d, (x, 1.0, z), (sx, 2.0, sz), Color::new(80, 84, 90, 255));
-    }
-
-    for t in w.targets.iter().filter(|t| t.alive()) {
-        let c = t.aabb.center;
-        let s = t.aabb.half * 2.0;
-        let base = match t.hp {
-            3 => Color::new(160, 120, 70, 255),
-            2 => Color::new(170, 95, 55, 255),
-            _ => Color::new(175, 65, 45, 255),
-        };
-        let color = if t.flash > 0.0 { Color::WHITE } else { base };
-        block(d, (c.x, c.y, c.z), (s.x, s.y, s.z), color);
-        // Bullseye stripe so targets read as targets.
-        cube(
-            d,
-            (c.x, c.y + t.aabb.half.y - 0.3, c.z),
-            (s.x + 0.02, 0.2, s.z + 0.02),
-            Color::new(235, 225, 200, 255),
-        );
+    match models.as_deref_mut() {
+        Some(m) => {
+            m.draw_ground(d);
+            m.draw_arena_edge(d);
+            for o in &w.obstacles {
+                m.draw_obstacle(d, o);
+            }
+            for t in w.targets.iter().filter(|t| t.alive()) {
+                m.draw_crate(d, t);
+            }
+        }
+        None => draw_world_boxes(d, w),
     }
 
     for e in w.enemies.iter().filter(|e| e.alive()) {
@@ -287,6 +260,50 @@ pub fn draw_world<D: RaylibDraw3D>(d: &mut D, w: &World, mut models: Option<&mut
         let a = ((1.0 - p) * 220.0) as u8;
         d.draw_sphere(e.pos, r, Color::new(255, 150, 50, a));
         d.draw_sphere(e.pos, r * 0.6, Color::new(255, 235, 150, a));
+    }
+}
+
+/// Fallback scenery when the model files are missing: flat ground, grid and plain boxes.
+fn draw_world_boxes<D: RaylibDraw3D>(d: &mut D, w: &World) {
+    d.draw_plane(
+        Vector3::zero(),
+        Vector2::new(ARENA_HALF * 2.0, ARENA_HALF * 2.0),
+        GROUND,
+    );
+    // Lifted a little so the grid does not flicker against the ground plane.
+    with_transform(
+        Vector3::new(0.0, 0.03, 0.0),
+        0.0,
+        Vector3::new(0.0, 1.0, 0.0),
+        || d.draw_grid(90, 2.0),
+    );
+    for (x, z, sx, sz) in [
+        (0.0, ARENA_HALF, ARENA_HALF * 2.0, 1.0),
+        (0.0, -ARENA_HALF, ARENA_HALF * 2.0, 1.0),
+        (ARENA_HALF, 0.0, 1.0, ARENA_HALF * 2.0),
+        (-ARENA_HALF, 0.0, 1.0, ARENA_HALF * 2.0),
+    ] {
+        block(d, (x, 1.0, z), (sx, 2.0, sz), Color::new(80, 84, 90, 255));
+    }
+    for o in &w.obstacles {
+        let b = o.aabb();
+        let s = b.half * 2.0;
+        block(
+            d,
+            (b.center.x, b.center.y, b.center.z),
+            (s.x, s.y, s.z),
+            Color::new(110, 110, 112, 255),
+        );
+    }
+    for t in w.targets.iter().filter(|t| t.alive()) {
+        let c = t.aabb.center;
+        let s = t.aabb.half * 2.0;
+        let color = if t.flash > 0.0 {
+            Color::WHITE
+        } else {
+            Color::new(85, 97, 59, 255)
+        };
+        block(d, (c.x, c.y, c.z), (s.x, s.y, s.z), color);
     }
 }
 

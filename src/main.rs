@@ -2,6 +2,7 @@ mod input;
 mod math;
 mod model_layout;
 mod models;
+mod props_layout;
 mod render;
 mod tank;
 mod turret_layout;
@@ -81,7 +82,13 @@ fn main() {
 
         let cam = render::camera(&world);
         let mut d = rl.begin_drawing(&thread);
-        d.clear_background(Color::new(120, 140, 160, 255));
+        d.clear_background(models::FOG_COLOR);
+        // Sky: darker blue overhead fading into the fog color at the horizon.
+        let (sw, sh) = (d.get_screen_width(), d.get_screen_height());
+        d.draw_rectangle_gradient_v(0, 0, sw, sh / 2, models::SKY_TOP, models::FOG_COLOR);
+        if let Some(m) = models.as_mut() {
+            m.set_view(cam.position);
+        }
         {
             let mut d3 = d.begin_mode3D(cam);
             render::draw_world(&mut d3, &world, models.as_mut());
@@ -91,7 +98,7 @@ fn main() {
 
         frame += 1;
         if let Some(path) = &screenshot
-            && frame == 108
+            && frame == shot_frame
         {
             rl.take_screenshot(&thread, path);
             break;
