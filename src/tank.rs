@@ -15,19 +15,8 @@ pub const BARREL_MAX_PITCH: f32 = 0.35;
 pub const RELOAD_TIME: f32 = 0.8;
 pub const COLLISION_RADIUS: f32 = 2.4;
 
-/// Turret pivot relative to the hull origin (hull frame, +Z is forward).
-pub const TURRET_PIVOT: Vector3 = Vector3 {
-    x: 0.0,
-    y: 1.5,
-    z: -0.3,
-};
-/// Barrel pivot relative to the turret pivot (turret frame).
-pub const BARREL_PIVOT: Vector3 = Vector3 {
-    x: 0.0,
-    y: 0.45,
-    z: 1.4,
-};
-pub const BARREL_LENGTH: f32 = 4.2;
+// Pivots and barrel length come from the 3dixel model, so the game and the art agree.
+pub use crate::model_layout::{BARREL_LENGTH, BARREL_PIVOT, TURRET_PIVOT};
 
 pub struct Tank {
     pub pos: Vector3,
@@ -117,6 +106,11 @@ impl Tank {
         ));
         let want_pitch = to.y.atan2(flat).clamp(BARREL_MIN_PITCH, BARREL_MAX_PITCH);
         self.barrel_pitch = approach(self.barrel_pitch, want_pitch, BARREL_PITCH_SPEED * dt);
+    }
+
+    /// How far a wheel of this rolling radius has turned, in radians (positive rolls forward).
+    pub fn wheel_angle(&self, radius: f32) -> f32 {
+        self.track_offset / radius
     }
 
     pub fn can_fire(&self) -> bool {

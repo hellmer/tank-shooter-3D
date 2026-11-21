@@ -1,7 +1,9 @@
 mod input;
 mod math;
+mod model_layout;
 mod render;
 mod tank;
+mod tank_model;
 mod world;
 
 use input::Controls;
@@ -39,7 +41,28 @@ fn main() {
         rl.disable_cursor();
     }
 
+    let models = match tank_model::TankModels::load(&mut rl, &thread) {
+        Ok(m) => Some(m),
+        Err(e) => {
+            eprintln!("Could not load the tank model, drawing the box tank instead: {e}");
+            None
+        }
+    };
+
     let mut world = World::new(0x5eed);
+    // Optional starting camera angles (degrees), handy for screenshots: --yaw 90 --pitch -20
+    let arg_f32 = |name: &str| {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1))
+            .and_then(|v| v.parse::<f32>().ok())
+    };
+    if let Some(yaw) = arg_f32("--yaw") {
+        world.camera.yaw = yaw.to_radians();
+    }
+    if let Some(pitch) = arg_f32("--pitch") {
+        world.camera.pitch = pitch.to_radians();
+    }
     let mut frame: u32 = 0;
 
     while !rl.window_should_close() {
@@ -57,7 +80,7 @@ fn main() {
         d.clear_background(Color::new(120, 140, 160, 255));
         {
             let mut d3 = d.begin_mode3D(cam);
-            render::draw_world(&mut d3, &world);
+            render::draw_world(&mut d3, &world, models.as_ref());
         }
         render::draw_hud(&mut d, &world, cam, controls.gamepad_connected);
         drop(d);

@@ -1,6 +1,7 @@
-//! Drawing. The tank is placeholder boxes until the Blockbench model is ready.
+//! Drawing. The tank is the 3dixel model; the box tank is only a fallback if the model files are missing.
 
 use crate::tank::{self, Tank};
+use crate::tank_model::TankModels;
 use crate::world::{ARENA_HALF, World};
 use raylib::ffi;
 use raylib::prelude::*;
@@ -49,7 +50,7 @@ const GROUND: Color = Color {
 };
 
 /// Runs `f` with the model matrix translated and rotated (degrees around an axis).
-fn with_transform(pos: Vector3, angle_deg: f32, axis: Vector3, f: impl FnOnce()) {
+pub fn with_transform(pos: Vector3, angle_deg: f32, axis: Vector3, f: impl FnOnce()) {
     unsafe {
         ffi::rlPushMatrix();
         ffi::rlTranslatef(pos.x, pos.y, pos.z);
@@ -174,7 +175,7 @@ pub fn draw_tank<D: RaylibDraw3D>(d: &mut D, t: &Tank) {
     });
 }
 
-pub fn draw_world<D: RaylibDraw3D>(d: &mut D, w: &World) {
+pub fn draw_world<D: RaylibDraw3D>(d: &mut D, w: &World, models: Option<&TankModels>) {
     // Ground and arena edge.
     d.draw_plane(
         Vector3::zero(),
@@ -216,7 +217,10 @@ pub fn draw_world<D: RaylibDraw3D>(d: &mut D, w: &World) {
         );
     }
 
-    draw_tank(d, &w.tank);
+    match models {
+        Some(m) => m.draw(d, &w.tank),
+        None => draw_tank(d, &w.tank),
+    }
 
     for s in &w.shells {
         d.draw_sphere(s.pos, 0.18, ORANGE);
