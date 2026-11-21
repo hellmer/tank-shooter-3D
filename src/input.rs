@@ -19,6 +19,8 @@ pub struct Controls {
     /// Camera pitch change this frame, in radians (positive looks up).
     pub look_pitch: f32,
     pub fire: bool,
+    /// Start again after the tank is destroyed.
+    pub restart: bool,
     pub gamepad_connected: bool,
 }
 
@@ -52,6 +54,8 @@ impl Controls {
         c.look_pitch -= md.y * MOUSE_SENSITIVITY;
         c.fire |= rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT)
             || rl.is_key_down(KeyboardKey::KEY_SPACE);
+
+        c.restart |= rl.is_key_pressed(KeyboardKey::KEY_R);
 
         // Gamepad: left stick drives, right stick aims, right trigger (or RB) fires.
         if rl.is_gamepad_available(GAMEPAD) {

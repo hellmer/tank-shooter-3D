@@ -1,8 +1,10 @@
 //! Drawing. The tank is the 3dixel model; the box tank is only a fallback if the model files are missing.
 
+use crate::models::Models;
 use crate::tank::{self, Tank};
-use crate::tank_model::TankModels;
+use crate::turret_layout;
 use crate::world::{ARENA_HALF, World};
+use crate::world::{Enemy, Owner, PLAYER_MAX_HP};
 use raylib::ffi;
 use raylib::prelude::*;
 
@@ -175,7 +177,7 @@ pub fn draw_tank<D: RaylibDraw3D>(d: &mut D, t: &Tank) {
     });
 }
 
-pub fn draw_world<D: RaylibDraw3D>(d: &mut D, w: &World, models: Option<&TankModels>) {
+pub fn draw_world<D: RaylibDraw3D>(d: &mut D, w: &World, mut models: Option<&mut Models>) {
     // Ground and arena edge.
     d.draw_plane(
         Vector3::zero(),
@@ -217,15 +219,66 @@ pub fn draw_world<D: RaylibDraw3D>(d: &mut D, w: &World, models: Option<&TankMod
         );
     }
 
-    match models {
-        Some(m) => m.draw(d, &w.tank),
-        None => draw_tank(d, &w.tank),
+    for e in w.enemies.iter().filter(|e| e.alive()) {
+        match models.as_deref_mut() {
+            Some(m) => m.draw_enemy(d, e),
+            None => draw_enemy_boxes(d, e),
+        }
+    }
+
+    if w.player_alive() {
+        match models.as_deref() {
+            Some(m) => m.draw_tank(d, &w.tank),
+            None => draw_tank(d, &w.tank),
+        }
+    } else {
+        // Burnt-out wreck: the hull stays, dark and smoking.
+        with_transform(
+            w.tank.pos,
+            w.tank.hull_yaw.to_degrees(),
+            Vector3::new(0.0, 1.0, 0.0),
+            || {
+                block(
+                    d,
+                    (0.0, 0.8, 0.0),
+                    (3.6, 1.6, 6.8),
+                    Color::new(22, 22, 24, 255),
+                );
+            },
+        );
+        let puff = (w.time * 1.3).fract();
+        let smoke = w.tank.pos + Vector3::new(0.0, 2.0 + puff * 4.0, 0.0);
+        d.draw_sphere(
+            smoke,
+            0.8 + puff * 1.4,
+            Color::new(40, 40, 44, (160.0 * (1.0 - puff)) as u8),
+        );
     }
 
     for s in &w.shells {
-        d.draw_sphere(s.pos, 0.18, ORANGE);
+        let (core, trail) = match s.owner {
+            Owner::Player => (ORANGE, Color::new(255, 200, 120, 160)),
+            Owner::Enemy => (Color::new(255, 70, 60, 255), Color::new(255, 120, 100, 160)),
+        };
+        d.draw_sphere(s.pos, 0.18, core);
         let tail = s.pos - s.vel * 0.02;
-        d.draw_cylinder_ex(tail, s.pos, 0.02, 0.12, 6, Color::new(255, 200, 120, 160));
+        d.draw_cylinder_ex(tail, s.pos, 0.02, 0.12, 6, trail);
+    }
+
+    for b in &w.debris {
+        let color = match b.kind {
+            0 => Color::new(48, 54, 62, 255),
+            1 => Color::new(150, 110, 62, 255),
+            _ => Color::new(255, 150, 60, 255),
+        };
+        with_transform(
+            b.pos,
+            b.angle.to_degrees(),
+            Vector3::new(0.6, 0.8, 0.3).normalize(),
+            || {
+                cube(d, (0.0, 0.0, 0.0), (b.size, b.size, b.size), color);
+            },
+        );
     }
 
     for e in &w.explosions {
@@ -235,6 +288,24 @@ pub fn draw_world<D: RaylibDraw3D>(d: &mut D, w: &World, models: Option<&TankMod
         d.draw_sphere(e.pos, r, Color::new(255, 150, 50, a));
         d.draw_sphere(e.pos, r * 0.6, Color::new(255, 235, 150, a));
     }
+}
+
+/// Fallback enemy when the model files are missing.
+fn draw_enemy_boxes<D: RaylibDraw3D>(d: &mut D, e: &Enemy) {
+    let up = Vector3::new(0.0, 1.0, 0.0);
+    let color = if e.flash > 0.0 { Color::WHITE } else { HULL };
+    with_transform(e.pos, 0.0, up, || {
+        block(d, (0.0, 0.5, 0.0), (2.0, 1.0, 2.0), HULL_DARK);
+        with_transform(turret_layout::HEAD_PIVOT, e.yaw.to_degrees(), up, || {
+            block(d, (0.0, 0.4, 0.0), (1.6, 0.8, 2.0), color);
+            cube(
+                d,
+                (0.0, 0.5, 1.01),
+                (1.0, 0.12, 0.02),
+                Color::new(255, 60, 50, 255),
+            );
+        });
+    });
 }
 
 pub fn camera(w: &World) -> Camera3D {
@@ -270,13 +341,90 @@ pub fn draw_hud(d: &mut RaylibDrawHandle, w: &World, cam: Camera3D, gamepad: boo
     d.draw_rectangle(cx - 40, cy + 26, 80, 5, Color::new(0, 0, 0, 120));
     d.draw_rectangle(cx - 40, cy + 26, (80.0 * frac) as i32, 5, ring);
 
+    // Red markers over enemies that are in front of the camera.
+    for e in w.enemies.iter().filter(|e| e.alive()) {
+        let top = e.pos + Vector3::new(0.0, turret_layout::HEIGHT + 0.8, 0.0);
+        if (top - cam.position).dot(cam.target - cam.position) <= 0.0 {
+            continue;
+        }
+        let p = d.get_world_to_screen(top, cam);
+        let (x, y) = (p.x as i32, p.y as i32);
+        let red = if e.flash > 0.0 {
+            Color::WHITE
+        } else {
+            Color::new(255, 70, 60, 220)
+        };
+        d.draw_triangle(
+            Vector2::new(x as f32 - 7.0, y as f32 - 10.0),
+            Vector2::new(x as f32, y as f32),
+            Vector2::new(x as f32 + 7.0, y as f32 - 10.0),
+            red,
+        );
+        // Small health pips.
+        for k in 0..e.hp {
+            d.draw_rectangle(x - 10 + k * 6, y - 18, 4, 4, red);
+        }
+    }
+
     d.draw_text(
-        &format!("Blancos destruidos: {}", w.score),
+        &format!("Enemigos destruidos: {}", w.enemies_destroyed),
         20,
         20,
         24,
         Color::RAYWHITE,
     );
+    d.draw_text(
+        &format!("Cajas: {}", w.crates_destroyed),
+        20,
+        50,
+        20,
+        Color::new(220, 220, 220, 200),
+    );
+
+    // Health bar.
+    let frac = (w.hp / PLAYER_MAX_HP).clamp(0.0, 1.0);
+    let bar_color = if frac > 0.5 {
+        Color::new(70, 235, 255, 230)
+    } else if frac > 0.25 {
+        Color::new(255, 190, 70, 230)
+    } else {
+        Color::new(255, 70, 60, 230)
+    };
+    d.draw_text("BLINDAJE", 20, sh - 92, 18, Color::new(220, 220, 220, 220));
+    d.draw_rectangle(20, sh - 70, 260, 16, Color::new(0, 0, 0, 140));
+    d.draw_rectangle(22, sh - 68, (256.0 * frac) as i32, 12, bar_color);
+
+    // Red flash at the screen edges when hit.
+    if w.hurt_flash > 0.0 {
+        let a = (w.hurt_flash / 0.35 * 120.0) as u8;
+        let red = Color::new(200, 20, 20, a);
+        let edge = 60;
+        d.draw_rectangle(0, 0, sw, edge, red);
+        d.draw_rectangle(0, sh - edge, sw, edge, red);
+        d.draw_rectangle(0, edge, edge, sh - 2 * edge, red);
+        d.draw_rectangle(sw - edge, edge, edge, sh - 2 * edge, red);
+    }
+
+    if !w.player_alive() {
+        d.draw_rectangle(0, 0, sw, sh, Color::new(0, 0, 0, 110));
+        let title = "TANQUE DESTRUIDO";
+        let tw = d.measure_text(title, 48);
+        d.draw_text(
+            title,
+            cx - tw / 2,
+            cy - 60,
+            48,
+            Color::new(255, 90, 70, 255),
+        );
+        let hint = if gamepad {
+            "Pulsa A o Start para volver a empezar"
+        } else {
+            "Pulsa R para volver a empezar"
+        };
+        let hw = d.measure_text(hint, 22);
+        d.draw_text(hint, cx - hw / 2, cy - 4, 22, Color::RAYWHITE);
+    }
+
     let help = if gamepad {
         "Mando: stick izq. mover | stick der. apuntar | RT disparar"
     } else {

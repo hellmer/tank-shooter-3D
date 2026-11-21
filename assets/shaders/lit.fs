@@ -7,6 +7,7 @@ uniform sampler2D texture0;     // albedo (the painted 3dixel texture)
 uniform sampler2D emissionMap;  // glowing texels, black elsewhere
 uniform vec4 colDiffuse;
 uniform vec3 lightDir;          // direction the light travels
+uniform float flash;            // 0..1, turns the model white when hit
 
 out vec4 finalColor;
 
@@ -18,5 +19,6 @@ void main()
     // Cool ambient from the sky, warm direct light, like the 3dixel previews.
     vec3 lit = base.rgb * (vec3(0.50, 0.53, 0.60) + vec3(0.80, 0.77, 0.70) * diffuse);
     // Glowing texels ignore the light.
-    finalColor = vec4(max(lit, glow * 1.15), base.a);
+    vec3 color = max(lit, glow * 1.15);
+    finalColor = vec4(mix(color, vec3(1.0), flash), base.a);
 }

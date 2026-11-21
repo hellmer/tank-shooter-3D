@@ -1,9 +1,10 @@
 mod input;
 mod math;
 mod model_layout;
+mod models;
 mod render;
 mod tank;
-mod tank_model;
+mod turret_layout;
 mod world;
 
 use input::Controls;
@@ -18,6 +19,7 @@ fn scripted_controls(frame: u32) -> Controls {
         look_yaw: if (20..50).contains(&frame) { 0.01 } else { 0.0 },
         look_pitch: 0.0,
         fire: frame > 70 && frame.is_multiple_of(50),
+        restart: false,
         gamepad_connected: false,
     }
 }
@@ -41,10 +43,10 @@ fn main() {
         rl.disable_cursor();
     }
 
-    let models = match tank_model::TankModels::load(&mut rl, &thread) {
+    let mut models = match models::Models::load(&mut rl, &thread) {
         Ok(m) => Some(m),
         Err(e) => {
-            eprintln!("Could not load the tank model, drawing the box tank instead: {e}");
+            eprintln!("Could not load the 3D models, drawing boxes instead: {e}");
             None
         }
     };
@@ -60,6 +62,8 @@ fn main() {
     if let Some(yaw) = arg_f32("--yaw") {
         world.camera.yaw = yaw.to_radians();
     }
+    // Frame at which --screenshot saves the image.
+    let shot_frame = arg_f32("--frames").map(|f| f as u32).unwrap_or(108);
     if let Some(pitch) = arg_f32("--pitch") {
         world.camera.pitch = pitch.to_radians();
     }
@@ -80,7 +84,7 @@ fn main() {
         d.clear_background(Color::new(120, 140, 160, 255));
         {
             let mut d3 = d.begin_mode3D(cam);
-            render::draw_world(&mut d3, &world, models.as_ref());
+            render::draw_world(&mut d3, &world, models.as_mut());
         }
         render::draw_hud(&mut d, &world, cam, controls.gamepad_connected);
         drop(d);
