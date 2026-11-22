@@ -58,6 +58,7 @@ enum Item {
     MusicVolume,
     MouseSensitivity,
     StickSensitivity,
+    Vhs,
     Back,
 }
 
@@ -74,6 +75,7 @@ impl Item {
             Item::MusicVolume => "Musica",
             Item::MouseSensitivity => "Raton",
             Item::StickSensitivity => "Mando",
+            Item::Vhs => "Efecto VHS",
             Item::Back => "Volver",
         }
     }
@@ -85,6 +87,7 @@ impl Item {
                 | Item::MusicVolume
                 | Item::MouseSensitivity
                 | Item::StickSensitivity
+                | Item::Vhs
         )
     }
 }
@@ -104,6 +107,7 @@ fn items(screen: Screen) -> &'static [Item] {
             Item::MusicVolume,
             Item::MouseSensitivity,
             Item::StickSensitivity,
+            Item::Vhs,
             Item::Back,
         ],
         Screen::Playing => &[],
@@ -135,6 +139,7 @@ fn step_value(settings: &mut Settings, item: Item, dir: f32) -> bool {
         Item::MusicVolume => settings.music_volume = vol(settings.music_volume),
         Item::MouseSensitivity => settings.mouse_sensitivity = sens(settings.mouse_sensitivity),
         Item::StickSensitivity => settings.stick_sensitivity = sens(settings.stick_sensitivity),
+        Item::Vhs => settings.vhs = !settings.vhs, // a switch: either arrow flips it
         _ => {}
     }
     *settings != before
@@ -146,6 +151,7 @@ fn value_text(settings: &Settings, item: Item) -> String {
         Item::MusicVolume => format!("{:.0}%", settings.music_volume * 100.0),
         Item::MouseSensitivity => format!("x{:.2}", settings.mouse_sensitivity),
         Item::StickSensitivity => format!("x{:.2}", settings.stick_sensitivity),
+        Item::Vhs => if settings.vhs { "Si" } else { "No" }.to_string(),
         _ => String::new(),
     }
 }
@@ -158,6 +164,7 @@ fn value_fill(settings: &Settings, item: Item) -> f32 {
         Item::MusicVolume => settings.music_volume,
         Item::MouseSensitivity => (settings.mouse_sensitivity - lo) / (hi - lo),
         Item::StickSensitivity => (settings.stick_sensitivity - lo) / (hi - lo),
+        Item::Vhs => settings.vhs as u8 as f32,
         _ => 0.0,
     }
 }

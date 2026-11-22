@@ -1,4 +1,4 @@
-//! Player options (volumes and look sensitivity), saved between games in a small text file.
+//! Player options (volumes, look sensitivity and the VHS effect), saved between games in a small text file.
 
 use std::path::PathBuf;
 
@@ -12,6 +12,8 @@ pub struct Settings {
     pub mouse_sensitivity: f32,
     /// Multiplier on the default stick look speed (0.25..3).
     pub stick_sensitivity: f32,
+    /// VHS tape effect with scanlines.
+    pub vhs: bool,
 }
 
 impl Default for Settings {
@@ -21,6 +23,7 @@ impl Default for Settings {
             music_volume: 0.6,
             mouse_sensitivity: 1.0,
             stick_sensitivity: 1.0,
+            vhs: true,
         }
     }
 }
@@ -49,6 +52,7 @@ impl Settings {
                 "music_volume" => s.music_volume = v.clamp(0.0, 1.0),
                 "mouse_sensitivity" => s.mouse_sensitivity = v.clamp(lo, hi),
                 "stick_sensitivity" => s.stick_sensitivity = v.clamp(lo, hi),
+                "vhs" => s.vhs = v != 0.0,
                 _ => {}
             }
         }
@@ -57,8 +61,12 @@ impl Settings {
 
     pub fn to_text(self) -> String {
         format!(
-            "effects_volume = {:.2}\nmusic_volume = {:.2}\nmouse_sensitivity = {:.2}\nstick_sensitivity = {:.2}\n",
-            self.effects_volume, self.music_volume, self.mouse_sensitivity, self.stick_sensitivity
+            "effects_volume = {:.2}\nmusic_volume = {:.2}\nmouse_sensitivity = {:.2}\nstick_sensitivity = {:.2}\nvhs = {}\n",
+            self.effects_volume,
+            self.music_volume,
+            self.mouse_sensitivity,
+            self.stick_sensitivity,
+            self.vhs as u8
         )
     }
 
@@ -103,6 +111,7 @@ mod tests {
             music_volume: 1.0,
             mouse_sensitivity: 1.75,
             stick_sensitivity: 0.5,
+            vhs: false,
         };
         assert_eq!(Settings::parse(&s.to_text()), s);
     }
