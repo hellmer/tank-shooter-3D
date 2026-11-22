@@ -356,6 +356,27 @@ impl World {
         self.hp > 0.0
     }
 
+    /// How much of a fight the player is in, 0 (quiet) to 1, for the music: a hunting tank or a
+    /// turret in range, or a recent hit, counts as a fight.
+    pub fn danger(&self) -> f32 {
+        if !self.player_alive() {
+            return 0.0;
+        }
+        let p = self.tank.pos;
+        let tanks = self
+            .enemy_tanks
+            .iter()
+            .filter(|t| t.alive() && t.pos.distance(p) < enemy_tank::SIGHT_RANGE)
+            .count();
+        let turrets = self
+            .enemies
+            .iter()
+            .filter(|e| e.alive() && e.pos.distance(p) < ENEMY_RANGE)
+            .count();
+        let hurt = if self.hurt_flash > 0.0 { 1.0 } else { 0.0 };
+        (tanks as f32 * 0.6 + turrets as f32 * 0.35 + hurt).min(1.0)
+    }
+
     fn spot_is_clear(&self, center: Vector3, clearance: f32) -> bool {
         center.distance(self.tank.pos) > 25.0
             && self
@@ -1254,5 +1275,18 @@ mod tests {
         for want in [Sfx::PlayerCannon, Sfx::Impact, Sfx::CrateBreak, Sfx::Reload] {
             assert!(heard.contains(&want), "no {want:?} in {heard:?}");
         }
+    }
+
+    #[test]
+    fn danger_rises_with_enemies_near() {
+        let mut w = quiet_world(25);
+        assert_eq!(w.danger(), 0.0);
+        w.enemy_tanks
+            .push(EnemyTank::new(Vector3::new(0.0, 0.0, 150.0), 0.0));
+        assert_eq!(w.danger(), 0.0, "a far tank is no fight yet");
+        w.enemy_tanks[0].pos = Vector3::new(0.0, 0.0, 40.0);
+        assert!(w.danger() > 0.5);
+        w.hp = 0.0;
+        assert_eq!(w.danger(), 0.0);
     }
 }

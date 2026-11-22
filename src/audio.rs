@@ -1,6 +1,8 @@
 //! Sound: plays the synthesized effects (`tools/sfx.py`, in `assets/sounds/`) for the world's
 //! sound events, quieter with distance and panned left or right from the camera's point of view,
-//! plus a looping engine for the player's tank and one for each enemy tank.
+//! plus a looping engine for the player's tank and one for each enemy tank, and the music
+//! (`tools/music.py`): a calm loop that always plays and a combat loop over it that fades in
+//! when enemies are near.
 
 use crate::enemy_tank;
 use crate::models::asset_path;
@@ -12,6 +14,8 @@ use std::ffi::CString;
 
 /// How many copies of each effect can sound at the same time.
 const VOICES: usize = 4;
+/// Music level, under the effects.
+const MUSIC_LEVEL: f32 = 0.32;
 /// Overall level of the effects, leaving headroom for several at once.
 const EFFECTS_LEVEL: f32 = 0.7;
 
@@ -90,6 +94,10 @@ pub struct Audio {
     effects: Vec<Effect>,
     engine: Option<ffi::Music>,
     enemy_engines: Vec<ffi::Music>,
+    /// Calm and combat loops, started together so they stay in time.
+    music: Option<(ffi::Music, ffi::Music)>,
+    /// How loud the combat loop is right now (0..1), following `World::danger` slowly.
+    combat: f32,
     muted: bool,
     /// For small pitch changes, so repeated shots do not sound identical.
     jitter: u32,
@@ -148,10 +156,25 @@ impl Audio {
         let enemy_engines = (0..crate::world::ENEMY_TANK_COUNT)
             .filter_map(|_| load_music("sounds/engine_enemy.wav"))
             .collect();
+        let music = match (load_music("music/calm.ogg"), load_music("music/combat.ogg")) {
+            (Some(calm), Some(combat)) => Some((calm, combat)),
+            (calm, combat) => {
+                eprintln!("Missing music: run tools/music.py");
+                // SAFETY: unload whichever of the two did load.
+                unsafe {
+                    for m in calm.iter().chain(combat.iter()) {
+                        ffi::UnloadMusicStream(*m);
+                    }
+                }
+                None
+            }
+        };
         Some(Audio {
             effects,
             engine,
             enemy_engines,
+            music,
+            combat: 0.0,
             muted: false,
             jitter: 1,
         })
@@ -176,7 +199,7 @@ impl Audio {
     }
 
     /// Plays this frame's events and keeps the engines running. `eye` and `target` are the camera's.
-    pub fn update(&mut self, w: &World, eye: Vector3, target: Vector3) {
+    pub fn update(&mut self, w: &World, eye: Vector3, target: Vector3, dt: f32) {
         let look = Vector3::new(target.x - eye.x, 0.0, target.z - eye.z).normalize();
         // Right of the view: look × up (raylib is right-handed with +Y up).
         let right = Vector3::new(-look.z, 0.0, look.x);
@@ -202,6 +225,20 @@ impl Audio {
                 ffi::SetSoundPan(voice, pan);
                 ffi::SetSoundPitch(voice, pitch);
                 ffi::PlaySound(voice);
+            }
+        }
+
+        // Music: the combat layer swells quickly when a fight starts and fades out slowly after.
+        let want = w.danger();
+        let rate = if want > self.combat { 0.5 } else { 0.12 };
+        self.combat = crate::math::approach(self.combat, want, rate * dt);
+        if let Some((calm, combat)) = self.music {
+            // SAFETY: both streams are live and owned by `self`.
+            unsafe {
+                ffi::SetMusicVolume(calm, MUSIC_LEVEL * (1.0 - 0.3 * self.combat));
+                ffi::SetMusicVolume(combat, MUSIC_LEVEL * 1.1 * self.combat);
+                ffi::UpdateMusicStream(calm);
+                ffi::UpdateMusicStream(combat);
             }
         }
 
@@ -250,7 +287,13 @@ impl Drop for Audio {
                 }
                 ffi::UnloadSound(fx.base);
             }
-            for m in self.engine.iter().chain(self.enemy_engines.iter()) {
+            let music = self.music.iter().flat_map(|(a, b)| [a, b]);
+            for m in self
+                .engine
+                .iter()
+                .chain(self.enemy_engines.iter())
+                .chain(music)
+            {
                 ffi::UnloadMusicStream(*m);
             }
             ffi::CloseAudioDevice();
@@ -285,5 +328,7 @@ mod tests {
         }
         assert!(std::path::Path::new(&asset_path("sounds/engine.wav")).exists());
         assert!(std::path::Path::new(&asset_path("sounds/engine_enemy.wav")).exists());
+        assert!(std::path::Path::new(&asset_path("music/calm.ogg")).exists());
+        assert!(std::path::Path::new(&asset_path("music/combat.ogg")).exists());
     }
 }

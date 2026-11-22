@@ -66,6 +66,7 @@ tapa el tiro. Aguantan 5 impactos y reaparecen a los 10 segundos.
 - `art/common/paint.py`: paletas y pintores de textura compartidos.
 - `tools/3dixel/`: copia del núcleo de 3dixel (licencia MIT) para poder renderizar y exportar sin nada más.
 - `tools/sfx.py`: sintetiza todos los sonidos (cañones, explosiones, impactos de blindaje, cajas, recarga y motores) a `assets/sounds/*.wav` con ondas, ruido filtrado y envolventes. No hay grabaciones: si cambias el script, `python3 tools/sfx.py assets/sounds` los regenera.
+- `tools/music.py`: compone y sintetiza la música (`assets/music/calm.ogg` y `combat.ogg`, re menor a 96 BPM, 40 s en bucle). La capa tranquila suena siempre; la de combate (batería, bajo distorsionado y acordes) entra poco a poco cuando hay enemigos cerca y se apaga despacio al terminar la pelea. Hace falta ffmpeg con libvorbis para el .ogg: `python3 tools/music.py assets/music`.
 - `tools/export_glb.py`: exporta las piezas de cada modelo a GLB y genera un archivo Rust con sus pivotes. Cada `model.py` dice qué exportar con `exports()` y `layout()`.
 
 Después de cambiar el modelo (hace falta Python 3 con numpy y Pillow):
