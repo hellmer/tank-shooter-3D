@@ -19,6 +19,11 @@ cargo run --release
 
 ## Controles
 
+El juego empieza en la pantalla de inicio (Jugar, Opciones, Salir). En los menús te mueves con
+flechas o WASD, el ratón o la cruceta del mando; Enter, clic o A aceptan, y Esc o B vuelven atrás.
+En Opciones cambias el volumen de los efectos y de la música y la sensibilidad del ratón y del mando
+(izquierda/derecha o clic en cada mitad de la fila). Se guardan en `~/.config/tank_shooter/settings.txt`.
+
 | Acción    | Teclado y ratón              | Mando                    |
 |-----------|------------------------------|--------------------------|
 | Mover     | WASD o flechas               | Stick izquierdo          |
@@ -26,7 +31,7 @@ cargo run --release
 | Disparar  | Clic izquierdo o espacio     | RT (o RB)                |
 | Reiniciar (tras morir) | R, Enter o clic      | A o Start                |
 | Quitar/poner sonido | M                       | Select                   |
-| Salir     | Esc                          |                          |
+| Pausa     | Esc o P                      | Start                    |
 
 La torreta y el cañón giran hacia donde apunta la mira a una velocidad limitada. El círculo
 pequeño marca dónde iría el disparo ahora mismo; se pone cian cuando el cañón está cargado.
@@ -36,6 +41,8 @@ pequeño marca dónde iría el disparo ahora mismo; se pone cian cuando el cañ�
 - `src/input.rs`: junta teclado, ratón y mando en un único `Controls`.
 - `src/tank.rs`: movimiento del casco, giro de la torreta y elevación del cañón.
 - `src/world.rs`: estado del juego (cajas, enemigos, proyectiles, restos, vida, cámara) y colisiones.
+- `src/menu.rs`: pantalla de inicio, pausa y opciones (qué hay en cada una y cómo se navega).
+- `src/settings.rs`: opciones del jugador y su archivo.
 - `src/audio.rs`: reproduce los efectos que pide el mundo (`World::sounds`), más bajos con la distancia y con paneo izquierda/derecha según la cámara, y los motores en bucle.
 - `src/enemy_tank.rs`: tanques enemigos: a dónde quieren ir, cómo esquivan obstáculos y cuándo disparan.
 - `src/render.rs`: dibujo del mundo y el HUD.

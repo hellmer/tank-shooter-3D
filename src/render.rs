@@ -497,9 +497,9 @@ pub fn draw_hud(d: &mut RaylibDrawHandle, w: &World, cam: Camera3D, gamepad: boo
     }
 
     let help = if gamepad {
-        "Mando: stick izq. mover | stick der. apuntar | RT disparar | Select sonido"
+        "Mando: stick izq. mover | stick der. apuntar | RT disparar | Select sonido | Start pausa"
     } else {
-        "WASD mover | raton apuntar | clic izq. / espacio disparar | M sonido | Esc salir"
+        "WASD mover | raton apuntar | clic izq. / espacio disparar | M sonido | Esc pausa"
     };
     if muted {
         d.draw_text(

@@ -98,6 +98,9 @@ pub struct Audio {
     music: Option<(ffi::Music, ffi::Music)>,
     /// How loud the combat loop is right now (0..1), following `World::danger` slowly.
     combat: f32,
+    /// Player's volume settings (0..1).
+    effects_volume: f32,
+    music_volume: f32,
     muted: bool,
     /// For small pitch changes, so repeated shots do not sound identical.
     jitter: u32,
@@ -175,6 +178,8 @@ impl Audio {
             enemy_engines,
             music,
             combat: 0.0,
+            effects_volume: 1.0,
+            music_volume: 1.0,
             muted: false,
             jitter: 1,
         })
@@ -190,6 +195,12 @@ impl Audio {
         self.muted
     }
 
+    /// Applies the player's volume options.
+    pub fn set_levels(&mut self, settings: &crate::settings::Settings) {
+        self.effects_volume = settings.effects_volume;
+        self.music_volume = settings.music_volume;
+    }
+
     fn next_jitter(&mut self) -> f32 {
         self.jitter = self
             .jitter
@@ -198,8 +209,9 @@ impl Audio {
         (self.jitter >> 8) as f32 / (1u32 << 24) as f32
     }
 
-    /// Plays this frame's events and keeps the engines running. `eye` and `target` are the camera's.
-    pub fn update(&mut self, w: &World, eye: Vector3, target: Vector3, dt: f32) {
+    /// Plays this frame's events and keeps the engines and music running. `eye` and `target` are
+    /// the camera's. `playing` is false in the menus: no effects or engines, calm music only.
+    pub fn update(&mut self, w: &World, eye: Vector3, target: Vector3, playing: bool, dt: f32) {
         let look = Vector3::new(target.x - eye.x, 0.0, target.z - eye.z).normalize();
         // Right of the view: look × up (raylib is right-handed with +Y up).
         let right = Vector3::new(-look.z, 0.0, look.x);
@@ -208,10 +220,14 @@ impl Audio {
             right,
         };
 
-        for ev in &w.sounds {
+        let events = if playing { &w.sounds[..] } else { &[] };
+        let fx_level = EFFECTS_LEVEL * self.effects_volume;
+        // Engines are effects too, and stay quiet in the menus.
+        let engine_level = if playing { self.effects_volume } else { 0.0 };
+        for ev in events {
             let (gain, half) = mix(ev.sfx);
             let (near, pan) = ear.place(ev.pos, half);
-            let volume = gain * near * EFFECTS_LEVEL;
+            let volume = gain * near * fx_level;
             if volume < 0.02 {
                 continue;
             }
@@ -229,14 +245,15 @@ impl Audio {
         }
 
         // Music: the combat layer swells quickly when a fight starts and fades out slowly after.
-        let want = w.danger();
+        let want = if playing { w.danger() } else { 0.0 };
         let rate = if want > self.combat { 0.5 } else { 0.12 };
         self.combat = crate::math::approach(self.combat, want, rate * dt);
         if let Some((calm, combat)) = self.music {
             // SAFETY: both streams are live and owned by `self`.
             unsafe {
-                ffi::SetMusicVolume(calm, MUSIC_LEVEL * (1.0 - 0.3 * self.combat));
-                ffi::SetMusicVolume(combat, MUSIC_LEVEL * 1.1 * self.combat);
+                let level = MUSIC_LEVEL * self.music_volume;
+                ffi::SetMusicVolume(calm, level * (1.0 - 0.3 * self.combat));
+                ffi::SetMusicVolume(combat, level * 1.1 * self.combat);
                 ffi::UpdateMusicStream(calm);
                 ffi::UpdateMusicStream(combat);
             }
@@ -252,7 +269,7 @@ impl Audio {
             };
             // SAFETY: `m` is a live stream owned by `self`.
             unsafe {
-                ffi::SetMusicVolume(m, volume);
+                ffi::SetMusicVolume(m, volume * engine_level);
                 ffi::SetMusicPitch(m, 0.8 + 0.55 * load);
                 ffi::UpdateMusicStream(m);
             }
@@ -268,7 +285,7 @@ impl Audio {
             };
             // SAFETY: as above.
             unsafe {
-                ffi::SetMusicVolume(*m, volume);
+                ffi::SetMusicVolume(*m, volume * engine_level);
                 ffi::SetMusicPan(*m, pan);
                 ffi::SetMusicPitch(*m, pitch);
                 ffi::UpdateMusicStream(*m);

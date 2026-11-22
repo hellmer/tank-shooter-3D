@@ -1,6 +1,6 @@
 //! VHS tape look (vhs_mpalko, two passes), ported from metroidvania3D-rust. The frame is drawn
 //! into an off-screen buffer, then pass 0 shrinks it to VHS resolution in YIQ and pass 1 scales
-//! it back to the window, with CRT scanlines. F3 or `--no-vhs` turns it off.
+//! it back to the window, with CRT scanlines. The options menu, F3 or `--no-vhs` turn it off.
 
 use raylib::ffi;
 use std::ffi::{CString, c_void};
@@ -30,7 +30,12 @@ fn set_f(shader: ffi::Shader, name: &str, v: &[f32], kind: ffi::ShaderUniformDat
 fn load_pass(fs: &str) -> ffi::Shader {
     let fs = CString::new(fs).unwrap();
     let shader = unsafe { ffi::LoadShaderFromMemory(std::ptr::null(), fs.as_ptr()) };
-    set_f(shader, "intensity", &[VHS_INTENSITY], ffi::ShaderUniformDataType::SHADER_UNIFORM_FLOAT);
+    set_f(
+        shader,
+        "intensity",
+        &[VHS_INTENSITY],
+        ffi::ShaderUniformDataType::SHADER_UNIFORM_FLOAT,
+    );
     shader
 }
 
@@ -62,9 +67,9 @@ fn load_float_render_texture(width: i32, height: i32) -> ffi::RenderTexture2D {
 
 impl Vhs {
     /// Call after the window exists.
-    pub fn new(enabled: bool) -> Self {
+    pub fn new() -> Self {
         let vhs = Vhs {
-            enabled,
+            enabled: false, // main.rs sets it every frame from the settings
             pass: [
                 load_pass(include_str!("../assets/shaders/vhs_pass0.fs")),
                 load_pass(include_str!("../assets/shaders/vhs_pass1.fs")),
@@ -106,7 +111,12 @@ impl Vhs {
                 ffi::SetTextureFilter(self.yiq.texture, bilinear);
             }
             for s in self.pass {
-                set_f(s, "outputSize", &[w as f32, h as f32], ffi::ShaderUniformDataType::SHADER_UNIFORM_VEC2);
+                set_f(
+                    s,
+                    "outputSize",
+                    &[w as f32, h as f32],
+                    ffi::ShaderUniformDataType::SHADER_UNIFORM_VEC2,
+                );
             }
             self.size = size;
         }
@@ -129,7 +139,12 @@ impl Vhs {
             return;
         }
         // Both passes read and write by gl_FragCoord without flipping, so no Y flip is needed.
-        let white = ffi::Color { r: 255, g: 255, b: 255, a: 255 };
+        let white = ffi::Color {
+            r: 255,
+            g: 255,
+            b: 255,
+            a: 255,
+        };
         unsafe {
             ffi::EndTextureMode();
             ffi::BeginTextureMode(self.yiq);
