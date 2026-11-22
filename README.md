@@ -24,7 +24,7 @@ cargo run --release
 | Mover     | WASD o flechas               | Stick izquierdo          |
 | Apuntar   | Ratón                        | Stick derecho            |
 | Disparar  | Clic izquierdo o espacio     | RT (o RB)                |
-| Reiniciar (tras morir) | R                    | A o Start                |
+| Reiniciar (tras morir) | R, Enter o clic      | A o Start                |
 | Quitar/poner sonido | M                       | Select                   |
 | Salir     | Esc                          |                          |
 

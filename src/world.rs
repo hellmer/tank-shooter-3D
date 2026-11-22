@@ -19,6 +19,8 @@ pub const TARGET_HP: i32 = 3;
 pub const TARGET_RESPAWN: f32 = 4.0;
 
 pub const PLAYER_MAX_HP: f32 = 100.0;
+/// Seconds after dying before the game takes a restart.
+pub const RESTART_DELAY: f32 = 1.0;
 pub const PLAYER_HIT_HALF: Vector3 = Vector3 {
     x: 2.1,
     y: 1.3,
@@ -278,6 +280,8 @@ pub struct World {
     /// Camera shake strength; decays every frame.
     pub shake: f32,
     pub time: f32,
+    /// Seconds since the player's tank was destroyed.
+    pub dead_for: f32,
     /// Sounds started during the last `update`, for the audio code to play.
     pub sounds: Vec<SoundEvent>,
     seed: u64,
@@ -307,6 +311,7 @@ impl World {
             hurt_flash: 0.0,
             shake: 0.0,
             time: 0.0,
+            dead_for: 0.0,
             sounds: Vec::new(),
             seed,
             rng: Rng::new(seed),
@@ -534,7 +539,11 @@ impl World {
     pub fn update(&mut self, c: &Controls, dt: f32) {
         self.sounds.clear();
         self.time += dt;
-        if c.restart && !self.player_alive() {
+        if !self.player_alive() {
+            self.dead_for += dt;
+        }
+        // A short wait so a click or shot held while dying does not restart straight away.
+        if c.restart && !self.player_alive() && self.dead_for > RESTART_DELAY {
             *self = World::new(self.seed.wrapping_add(1));
             return;
         }
@@ -1168,13 +1177,17 @@ mod tests {
             1.0 / 60.0,
         );
         assert!(w.shells.is_empty());
-        w.update(
-            &Controls {
-                restart: true,
-                ..Default::default()
-            },
-            1.0 / 60.0,
-        );
+        let restart = Controls {
+            restart: true,
+            ..Default::default()
+        };
+        // Too soon: a click held while dying must not restart.
+        w.update(&restart, 1.0 / 60.0);
+        assert_eq!(w.hp, 0.0);
+        for _ in 0..70 {
+            w.update(&Controls::default(), 1.0 / 60.0);
+        }
+        w.update(&restart, 1.0 / 60.0);
         assert_eq!(w.hp, PLAYER_MAX_HP);
     }
 
