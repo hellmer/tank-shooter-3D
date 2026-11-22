@@ -536,6 +536,11 @@ impl World {
         self.sounds.push(SoundEvent { sfx, pos });
     }
 
+    /// A fresh game with a new layout (same as restarting after dying).
+    pub fn restarted(&self) -> World {
+        World::new(self.seed.wrapping_add(1))
+    }
+
     pub fn update(&mut self, c: &Controls, dt: f32) {
         self.sounds.clear();
         self.time += dt;
