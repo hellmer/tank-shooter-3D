@@ -80,12 +80,16 @@ fn main() {
         world.camera.pitch = pitch.to_radians();
     }
     let mut frame: u32 = 0;
+    let mut mouse_look = input::MouseLook::new();
 
     while !rl.window_should_close() {
         let dt = rl.get_frame_time().min(1.0 / 20.0);
         let controls = match screenshot {
             Some(_) => scripted_controls(frame),
-            None => Controls::read(&rl, dt),
+            None => {
+                let mouse = mouse_look.delta(&mut rl);
+                Controls::read(&rl, mouse, dt)
+            }
         };
         // Fixed step in screenshot mode so the image is the same on every machine.
         let step = if screenshot.is_some() { 1.0 / 60.0 } else { dt };

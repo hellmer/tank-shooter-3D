@@ -6,7 +6,7 @@ use crate::models::Models;
 use crate::tank::{self, Tank};
 use crate::turret_layout;
 use crate::world::{ARENA_HALF, World};
-use crate::world::{ENEMY_HP, Enemy, Owner, PLAYER_MAX_HP};
+use crate::world::{ENEMY_HP, Enemy, Owner, PLAYER_MAX_HP, RESTART_DELAY};
 use raylib::ffi;
 use raylib::prelude::*;
 
@@ -475,13 +475,25 @@ pub fn draw_hud(d: &mut RaylibDrawHandle, w: &World, cam: Camera3D, gamepad: boo
             48,
             Color::new(255, 90, 70, 255),
         );
-        let hint = if gamepad {
-            "Pulsa A o Start para volver a empezar"
-        } else {
-            "Pulsa R para volver a empezar"
-        };
-        let hw = d.measure_text(hint, 22);
-        d.draw_text(hint, cx - hw / 2, cy - 4, 22, Color::RAYWHITE);
+        if w.dead_for > RESTART_DELAY {
+            // Both ways to restart, so it works whatever the player has in hand.
+            let mut lines = vec!["Pulsa R, Enter o clic para volver a empezar"];
+            if gamepad {
+                lines.push("Mando: A o Start");
+            }
+            for (k, line) in lines.iter().enumerate() {
+                let hw = d.measure_text(line, 24);
+                let y = cy + 40 + k as i32 * 34;
+                d.draw_rectangle(
+                    cx - hw / 2 - 12,
+                    y - 6,
+                    hw + 24,
+                    36,
+                    Color::new(0, 0, 0, 150),
+                );
+                d.draw_text(line, cx - hw / 2, y, 24, Color::RAYWHITE);
+            }
+        }
     }
 
     let help = if gamepad {

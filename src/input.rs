@@ -6,6 +6,54 @@ const DEADZONE: f32 = 0.15;
 const MOUSE_SENSITIVITY: f32 = 0.0035;
 const STICK_LOOK_SPEED: f32 = 2.6; // radians per second at full tilt
 const GAMEPAD: i32 = 0;
+/// A mouse move bigger than this in one frame (pixels) is the cursor being grabbed or
+/// warped by the window system, not the player: it is ignored so the camera does not jump.
+const MOUSE_JUMP: f32 = 300.0;
+/// Frames to ignore the mouse after the window gets focus or the first click.
+const MOUSE_SETTLE_FRAMES: u32 = 3;
+
+/// Keeps the camera still while the window system grabs the mouse. On some desktops (Wayland,
+/// some X11 window managers) the pointer is only locked on the first click or when the window
+/// gets focus, and that frame reports a huge mouse move.
+pub struct MouseLook {
+    settle: u32,
+    was_focused: bool,
+    clicked: bool,
+}
+
+impl MouseLook {
+    pub fn new() -> MouseLook {
+        MouseLook {
+            settle: MOUSE_SETTLE_FRAMES,
+            was_focused: false,
+            clicked: false,
+        }
+    }
+
+    /// Mouse movement to use this frame (zero while the grab is settling).
+    pub fn delta(&mut self, rl: &mut RaylibHandle) -> Vector2 {
+        let focused = rl.is_window_focused();
+        if focused && !self.was_focused {
+            rl.disable_cursor();
+            self.settle = MOUSE_SETTLE_FRAMES;
+        }
+        self.was_focused = focused;
+        let click = rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT);
+        if click && !self.clicked {
+            self.clicked = true;
+            self.settle = self.settle.max(MOUSE_SETTLE_FRAMES);
+        }
+        let md = rl.get_mouse_delta();
+        if !focused || self.settle > 0 {
+            self.settle = self.settle.saturating_sub(1);
+            return Vector2::zero();
+        }
+        if md.x.abs() > MOUSE_JUMP || md.y.abs() > MOUSE_JUMP {
+            return Vector2::zero();
+        }
+        md
+    }
+}
 
 /// What the player wants to do this frame, whatever device it came from.
 #[derive(Default, Clone, Copy, Debug)]
@@ -35,7 +83,8 @@ fn deadzone(v: f32) -> f32 {
 }
 
 impl Controls {
-    pub fn read(rl: &RaylibHandle, dt: f32) -> Controls {
+    /// `mouse` is this frame's mouse movement, already filtered by `MouseLook`.
+    pub fn read(rl: &RaylibHandle, mouse: Vector2, dt: f32) -> Controls {
         let mut c = Controls::default();
 
         // Keyboard and mouse.
@@ -51,19 +100,27 @@ impl Controls {
         if rl.is_key_down(KeyboardKey::KEY_D) || rl.is_key_down(KeyboardKey::KEY_RIGHT) {
             c.steer -= 1.0;
         }
-        let md = rl.get_mouse_delta();
+        let md = mouse;
         c.look_yaw -= md.x * MOUSE_SENSITIVITY;
         c.look_pitch -= md.y * MOUSE_SENSITIVITY;
         c.fire |= rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT)
             || rl.is_key_down(KeyboardKey::KEY_SPACE);
 
-        c.restart |= rl.is_key_pressed(KeyboardKey::KEY_R);
+        // Start again: R, Enter or a click (the world only takes it a moment after dying).
+        c.restart |= rl.is_key_pressed(KeyboardKey::KEY_R)
+            || rl.is_key_pressed(KeyboardKey::KEY_ENTER)
+            || rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT);
         c.mute |= rl.is_key_pressed(KeyboardKey::KEY_M);
 
         // Gamepad: left stick drives, right stick aims, right trigger (or RB) fires.
         if rl.is_gamepad_available(GAMEPAD) {
             c.gamepad_connected = true;
             // Select / Back / View.
+            // A (bottom face button) or Start.
+            c.restart |= rl
+                .is_gamepad_button_pressed(GAMEPAD, GamepadButton::GAMEPAD_BUTTON_RIGHT_FACE_DOWN)
+                || rl
+                    .is_gamepad_button_pressed(GAMEPAD, GamepadButton::GAMEPAD_BUTTON_MIDDLE_RIGHT);
             c.mute |=
                 rl.is_gamepad_button_pressed(GAMEPAD, GamepadButton::GAMEPAD_BUTTON_MIDDLE_LEFT);
             let lx =
