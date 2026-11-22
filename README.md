@@ -35,9 +35,10 @@ pequeño marca dónde iría el disparo ahora mismo; se pone cian cuando el cañ�
 - `src/input.rs`: junta teclado, ratón y mando en un único `Controls`.
 - `src/tank.rs`: movimiento del casco, giro de la torreta y elevación del cañón.
 - `src/world.rs`: estado del juego (cajas, enemigos, proyectiles, restos, vida, cámara) y colisiones.
+- `src/enemy_tank.rs`: tanques enemigos: a dónde quieren ir, cómo esquivan obstáculos y cuándo disparan.
 - `src/render.rs`: dibujo del mundo y el HUD.
 - `src/models.rs`: carga los GLB del tanque y de la torreta enemiga y los dibuja con sus piezas animadas.
-- `src/model_layout.rs`, `src/turret_layout.rs`, `src/props_layout.rs`: generados por el exportador; no se editan a mano.
+- `src/model_layout.rs`, `src/turret_layout.rs`, `src/enemy_tank_layout.rs`, `src/props_layout.rs`: generados por el exportador; no se editan a mano.
 - `src/math.rs`: ángulos, cajas y rayos.
 
 ## Enemigos
@@ -47,10 +48,17 @@ hacia ti, anticipan tu movimiento y disparan con sus dos cañones alternos; no d
 tapa el tiro. Aguantan 4 impactos y reaparecen en otro sitio a los 8 segundos. Cada impacto que recibes
 quita 12 de blindaje; a 0 el tanque queda destruido y puedes volver a empezar.
 
+Tanques enemigos (`art/tanque_enemigo/model.py`): tres cazadores ligeros, de acero oxidado y luces rojas,
+que patrullan el mapa. Si estás a menos de 85 m vienen a por ti: se acercan por un lado, te rodean entre
+22 y 42 m, retroceden de cara si te acercas demasiado y rodean rocas, barreras y cajas. Si se quedan
+atascados dan marcha atrás y giran. Disparan a menos de 70 m cuando su torreta está alineada y nada les
+tapa el tiro. Aguantan 5 impactos y reaparecen a los 10 segundos.
+
 ## Arte
 
 - `art/tanque/model.py`: el tanque en 3dixel (cubos, pivotes y texturas). Casco, torreta, cañón y cada rueda son grupos separados.
 - `art/torreta/model.py`: la torreta enemiga (base, cabeza y cañones dobles).
+- `art/tanque_enemigo/model.py`: el tanque enemigo (casco, torreta, cañón y ruedas separadas, como el del jugador).
 - `art/props/model.py`: escenario: caja militar (destructible), rocas y barrera de hormigón (cobertura fija; las barreras también cierran la arena).
 - `art/terreno/ground.py`: pinta la textura del suelo (`assets/textures/ground.png`, 64x64 que se repite cada 6,4 m).
 - `art/common/paint.py`: paletas y pintores de textura compartidos.
@@ -63,6 +71,7 @@ Después de cambiar el modelo (hace falta Python 3 con numpy y Pillow):
 python3 tools/3dixel/core/render.py art/tanque --out /tmp --name tanque   # vistas previas
 python3 tools/export_glb.py art/tanque/model.py assets/models/tank --layout src/model_layout.rs
 python3 tools/export_glb.py art/torreta/model.py assets/models/turret --layout src/turret_layout.rs
+python3 tools/export_glb.py art/tanque_enemigo/model.py assets/models/enemy_tank --layout src/enemy_tank_layout.rs
 python3 tools/export_glb.py art/props/model.py assets/models/props --layout src/props_layout.rs
 python3 art/terreno/ground.py assets/textures/ground.png
 ```

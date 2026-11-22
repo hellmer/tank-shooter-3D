@@ -1,10 +1,12 @@
 //! Drawing. The tank is the 3dixel model; the box tank is only a fallback if the model files are missing.
 
+use crate::enemy_tank::{self, EnemyTank};
+use crate::enemy_tank_layout;
 use crate::models::Models;
 use crate::tank::{self, Tank};
 use crate::turret_layout;
 use crate::world::{ARENA_HALF, World};
-use crate::world::{Enemy, Owner, PLAYER_MAX_HP};
+use crate::world::{ENEMY_HP, Enemy, Owner, PLAYER_MAX_HP};
 use raylib::ffi;
 use raylib::prelude::*;
 
@@ -198,6 +200,12 @@ pub fn draw_world<D: RaylibDraw3D>(d: &mut D, w: &World, mut models: Option<&mut
             None => draw_enemy_boxes(d, e),
         }
     }
+    for t in w.enemy_tanks.iter().filter(|t| t.alive()) {
+        match models.as_deref_mut() {
+            Some(m) => m.draw_enemy_tank(d, t),
+            None => draw_enemy_tank_boxes(d, t),
+        }
+    }
 
     if w.player_alive() {
         match models.as_deref() {
@@ -325,6 +333,28 @@ fn draw_enemy_boxes<D: RaylibDraw3D>(d: &mut D, e: &Enemy) {
     });
 }
 
+/// Fallback enemy tank when the model files are missing.
+fn draw_enemy_tank_boxes<D: RaylibDraw3D>(d: &mut D, t: &EnemyTank) {
+    let up = Vector3::new(0.0, 1.0, 0.0);
+    let color = if t.flash > 0.0 {
+        Color::WHITE
+    } else {
+        Color::new(70, 50, 40, 255)
+    };
+    with_transform(t.pos, t.hull_yaw.to_degrees(), up, || {
+        block(d, (0.0, 0.6, 0.0), (3.2, 1.2, 5.4), color);
+        with_transform(
+            enemy_tank_layout::TURRET_PIVOT,
+            t.turret_rel_yaw().to_degrees(),
+            up,
+            || {
+                block(d, (0.0, 0.25, -0.3), (1.6, 0.5, 2.0), color);
+                cube(d, (0.0, 0.25, 1.4), (0.2, 0.2, 2.4), HULL_DARK);
+            },
+        );
+    });
+}
+
 pub fn camera(w: &World) -> Camera3D {
     let (eye, target) = w.camera_pose();
     Camera3D::perspective(eye, target, Vector3::new(0.0, 1.0, 0.0), 60.0)
@@ -359,14 +389,25 @@ pub fn draw_hud(d: &mut RaylibDrawHandle, w: &World, cam: Camera3D, gamepad: boo
     d.draw_rectangle(cx - 40, cy + 26, (80.0 * frac) as i32, 5, ring);
 
     // Red markers over enemies that are in front of the camera.
-    for e in w.enemies.iter().filter(|e| e.alive()) {
-        let top = e.pos + Vector3::new(0.0, turret_layout::HEIGHT + 0.8, 0.0);
+    let turrets = w.enemies.iter().filter(|e| e.alive()).map(|e| {
+        (
+            e.pos + Vector3::new(0.0, turret_layout::HEIGHT + 0.8, 0.0),
+            e.flash,
+            e.hp,
+            ENEMY_HP,
+        )
+    });
+    let tanks = w.enemy_tanks.iter().filter(|t| t.alive()).map(|t| {
+        let top = t.pos + Vector3::new(0.0, enemy_tank_layout::BOX_HALF.y * 2.0 + 1.0, 0.0);
+        (top, t.flash, t.hp, enemy_tank::HP)
+    });
+    for (top, flash, hp, max_hp) in turrets.chain(tanks) {
         if (top - cam.position).dot(cam.target - cam.position) <= 0.0 {
             continue;
         }
         let p = d.get_world_to_screen(top, cam);
         let (x, y) = (p.x as i32, p.y as i32);
-        let red = if e.flash > 0.0 {
+        let red = if flash > 0.0 {
             Color::WHITE
         } else {
             Color::new(255, 70, 60, 220)
@@ -377,9 +418,10 @@ pub fn draw_hud(d: &mut RaylibDrawHandle, w: &World, cam: Camera3D, gamepad: boo
             Vector2::new(x as f32 + 7.0, y as f32 - 10.0),
             red,
         );
-        // Small health pips.
-        for k in 0..e.hp {
-            d.draw_rectangle(x - 10 + k * 6, y - 18, 4, 4, red);
+        // Small health pips, centred over the marker.
+        let x0 = x - max_hp * 3 + 1;
+        for k in 0..hp {
+            d.draw_rectangle(x0 + k * 6, y - 18, 4, 4, red);
         }
     }
 

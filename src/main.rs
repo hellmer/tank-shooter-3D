@@ -1,3 +1,5 @@
+mod enemy_tank;
+mod enemy_tank_layout;
 mod input;
 mod math;
 mod model_layout;

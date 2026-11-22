@@ -1,5 +1,6 @@
 //! Game state: the tank, crates, enemy turrets, shells and effects, and how they interact.
 
+use crate::enemy_tank::{self, EnemyTank};
 use crate::input::Controls;
 use crate::math::{Aabb, Rng, approach, approach_angle, dir_from_angles, wrap_angle, yaw_of};
 use crate::props_layout;
@@ -36,6 +37,12 @@ pub const ENEMY_SPREAD: f32 = 0.025;
 pub const ENEMY_RESPAWN: f32 = 8.0;
 pub const ENEMY_HALF_WIDTH: f32 = 1.4;
 
+pub const ENEMY_TANK_COUNT: usize = 3;
+pub const ENEMY_TANK_DAMAGE: f32 = 12.0;
+pub const ENEMY_TANK_SHELL_SPEED: f32 = 60.0;
+pub const ENEMY_TANK_SPREAD: f32 = 0.04;
+pub const ENEMY_TANK_RESPAWN: f32 = 10.0;
+
 const GRAVITY: f32 = 18.0;
 
 pub struct Target {
@@ -65,6 +72,19 @@ pub fn crate_box(base: Vector3) -> Aabb {
         center: base + props_layout::CRATE_CENTER,
         half: props_layout::CRATE_HALF,
     }
+}
+
+/// Pushes `p` away from `other` (on the ground plane) until they are `dist` apart.
+fn push_apart(p: Vector3, other: Vector3, dist: f32) -> Vector3 {
+    let d = Vector3::new(p.x - other.x, 0.0, p.z - other.z);
+    let len = d.length();
+    if len >= dist {
+        return p;
+    }
+    if len < 1e-4 {
+        return p + Vector3::new(dist, 0.0, 0.0);
+    }
+    p + d * ((dist - len) / len)
 }
 
 fn overlaps(a: &Aabb, b: &Aabb) -> bool {
@@ -170,6 +190,8 @@ pub struct Shell {
     pub vel: Vector3,
     pub life: f32,
     pub owner: Owner,
+    /// Armor taken from the player on a hit (enemy shells only).
+    pub damage: f32,
 }
 
 pub struct Explosion {
@@ -219,6 +241,7 @@ pub struct World {
     pub targets: Vec<Target>,
     pub obstacles: Vec<Obstacle>,
     pub enemies: Vec<Enemy>,
+    pub enemy_tanks: Vec<EnemyTank>,
     pub shells: Vec<Shell>,
     pub explosions: Vec<Explosion>,
     pub debris: Vec<Debris>,
@@ -247,6 +270,7 @@ impl World {
             targets: Vec::new(),
             obstacles: Vec::new(),
             enemies: Vec::new(),
+            enemy_tanks: Vec::new(),
             shells: Vec::new(),
             explosions: Vec::new(),
             debris: Vec::new(),
@@ -292,6 +316,11 @@ impl World {
                 next_barrel: false,
             });
         }
+        for _ in 0..ENEMY_TANK_COUNT {
+            let pos = w.random_enemy_spot();
+            let yaw = w.rng.range(-3.1, 3.1);
+            w.enemy_tanks.push(EnemyTank::new(pos, yaw));
+        }
         w
     }
 
@@ -309,6 +338,10 @@ impl World {
                 .enemies
                 .iter()
                 .all(|e| e.pos.distance(center) > clearance + 4.0)
+            && self
+                .enemy_tanks
+                .iter()
+                .all(|t| t.pos.distance(center) > clearance + 4.0)
             && self
                 .obstacles
                 .iter()
@@ -385,6 +418,11 @@ impl World {
         }
         for e in self.enemies.iter().filter(|e| e.alive()) {
             if let Some(d) = e.aabb().ray_hit(origin, dir) {
+                best = best.min(d);
+            }
+        }
+        for t in self.enemy_tanks.iter().filter(|t| t.alive()) {
+            if let Some(d) = t.aabb().ray_hit(origin, dir) {
                 best = best.min(d);
             }
         }
@@ -467,6 +505,13 @@ impl World {
             .chain(self.enemies.iter().filter(|e| e.alive()).map(|e| e.aabb()))
             .chain(self.obstacles.iter().map(|o| o.aabb()))
             .collect();
+        for t in self.enemy_tanks.iter().filter(|t| t.alive()) {
+            self.tank.pos = push_apart(
+                self.tank.pos,
+                t.pos,
+                tank::COLLISION_RADIUS + enemy_tank::COLLISION_RADIUS,
+            );
+        }
         for b in blockers {
             let pushed = b.push_circle_out(self.tank.pos, tank::COLLISION_RADIUS);
             if pushed.x != self.tank.pos.x || pushed.z != self.tank.pos.z {
@@ -494,6 +539,7 @@ impl World {
                 vel: self.tank.barrel_dir() * SHELL_SPEED,
                 life: SHELL_LIFE,
                 owner: Owner::Player,
+                damage: 0.0,
             });
             self.explosions.push(Explosion {
                 pos: muzzle,
@@ -506,6 +552,7 @@ impl World {
         }
 
         self.update_enemies(dt);
+        self.update_enemy_tanks(dt);
         self.update_shells(dt);
         self.update_targets(dt);
         self.update_effects(dt);
@@ -565,37 +612,147 @@ impl World {
             }
         }
         for (i, muzzle, yaw, pitch) in shots {
-            // Hold fire if a crate is in the way.
-            let dir = dir_from_angles(yaw, pitch);
-            let to_player = (self.tank.pos - muzzle).length();
-            let blocked = self
-                .targets
-                .iter()
-                .filter(|t| t.alive())
-                .any(|t| t.aabb.ray_hit(muzzle, dir).is_some_and(|d| d < to_player))
-                || self
-                    .obstacles
-                    .iter()
-                    .any(|o| o.aabb().ray_hit(muzzle, dir).is_some_and(|d| d < to_player));
-            if blocked {
+            if self.shot_blocked(muzzle, dir_from_angles(yaw, pitch)) {
                 self.enemies[i].reload = 0.6;
                 continue;
             }
-            let dy = self.rng.range(-ENEMY_SPREAD, ENEMY_SPREAD);
-            let dp = self.rng.range(-ENEMY_SPREAD, ENEMY_SPREAD) * 0.5;
-            let vel = dir_from_angles(yaw + dy, pitch + dp) * ENEMY_SHELL_SPEED;
-            self.shells.push(Shell {
-                pos: muzzle,
-                vel,
-                life: SHELL_LIFE,
-                owner: Owner::Enemy,
+            self.enemy_fire(
+                muzzle,
+                yaw,
+                pitch,
+                ENEMY_SPREAD,
+                ENEMY_SHELL_SPEED,
+                ENEMY_DAMAGE,
+                0.5,
+            );
+        }
+    }
+
+    /// True when cover or a crate stands between `muzzle` and the player along `dir`,
+    /// so enemies hold fire instead of wasting shells on it.
+    fn shot_blocked(&self, muzzle: Vector3, dir: Vector3) -> bool {
+        let to_player = (self.tank.pos - muzzle).length();
+        self.targets
+            .iter()
+            .filter(|t| t.alive())
+            .any(|t| t.aabb.ray_hit(muzzle, dir).is_some_and(|d| d < to_player))
+            || self
+                .obstacles
+                .iter()
+                .any(|o| o.aabb().ray_hit(muzzle, dir).is_some_and(|d| d < to_player))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn enemy_fire(
+        &mut self,
+        muzzle: Vector3,
+        yaw: f32,
+        pitch: f32,
+        spread: f32,
+        speed: f32,
+        damage: f32,
+        flash: f32,
+    ) {
+        let dy = self.rng.range(-spread, spread);
+        let dp = self.rng.range(-spread, spread) * 0.5;
+        let vel = dir_from_angles(yaw + dy, pitch + dp) * speed;
+        self.shells.push(Shell {
+            pos: muzzle,
+            vel,
+            life: SHELL_LIFE,
+            owner: Owner::Enemy,
+            damage,
+        });
+        self.explosions.push(Explosion {
+            pos: muzzle,
+            age: 0.0,
+            duration: 0.1,
+            radius: flash,
+        });
+    }
+
+    fn update_enemy_tanks(&mut self, dt: f32) {
+        let alive = self.player_alive();
+        let player = self.tank.pos + Vector3::new(0.0, 1.2, 0.0);
+        let player_vel = self.tank.forward() * self.tank.speed;
+        // Fixed things every enemy tank must steer around and cannot drive through.
+        let fixed: Vec<Aabb> = self
+            .targets
+            .iter()
+            .filter(|t| t.alive())
+            .map(|t| t.aabb)
+            .chain(self.enemies.iter().filter(|e| e.alive()).map(|e| e.aabb()))
+            .chain(self.obstacles.iter().map(|o| o.aabb()))
+            .collect();
+        let mut shots = Vec::new();
+        for i in 0..self.enemy_tanks.len() {
+            if let Some(r) = self.enemy_tanks[i].respawn.as_mut() {
+                *r -= dt;
+                if *r <= 0.0 {
+                    let pos = self.random_enemy_spot();
+                    let yaw = yaw_of(self.tank.pos - pos);
+                    self.enemy_tanks[i] = EnemyTank::new(pos, yaw);
+                }
+                continue;
+            }
+            let t = &mut self.enemy_tanks[i];
+            let before = t.pos;
+            let seen = alive.then_some(self.tank.pos);
+            t.drive(seen, &fixed, ARENA_HALF, &mut self.rng, dt);
+            let others: Vec<Vector3> = self
+                .enemy_tanks
+                .iter()
+                .enumerate()
+                .filter(|(j, o)| *j != i && o.alive())
+                .map(|(_, o)| o.pos)
+                .collect();
+            let t = &mut self.enemy_tanks[i];
+            for b in &fixed {
+                t.pos = b.push_circle_out(t.pos, enemy_tank::COLLISION_RADIUS);
+            }
+            for o in others {
+                t.pos = push_apart(t.pos, o, enemy_tank::COLLISION_RADIUS * 2.0);
+            }
+            if alive {
+                t.pos = push_apart(
+                    t.pos,
+                    self.tank.pos,
+                    tank::COLLISION_RADIUS + enemy_tank::COLLISION_RADIUS,
+                );
+            }
+            let lim = ARENA_HALF - enemy_tank::COLLISION_RADIUS;
+            t.pos.x = t.pos.x.clamp(-lim, lim);
+            t.pos.z = t.pos.z.clamp(-lim, lim);
+            let moved = (t.pos - before).length();
+            t.after_collisions(moved, dt);
+
+            // Turret: lead the player a little, like the turrets do.
+            let dist = t.pos.distance(self.tank.pos);
+            let aim = (alive && dist < enemy_tank::SIGHT_RANGE).then(|| {
+                let flight = dist / ENEMY_TANK_SHELL_SPEED;
+                player + player_vel * (flight * 0.7)
             });
-            self.explosions.push(Explosion {
-                pos: muzzle,
-                age: 0.0,
-                duration: 0.1,
-                radius: 0.5,
-            });
+            if t.aim(aim, dt) {
+                t.reload = enemy_tank::RELOAD;
+                shots.push((i, t.muzzle(), t.turret_yaw, t.barrel_pitch));
+            }
+        }
+        for (i, muzzle, yaw, pitch) in shots {
+            if self.shot_blocked(muzzle, dir_from_angles(yaw, pitch)) {
+                // Look for a clear line instead of firing into cover.
+                self.enemy_tanks[i].reload = 0.8;
+                continue;
+            }
+            self.enemy_tanks[i].speed -= 1.0;
+            self.enemy_fire(
+                muzzle,
+                yaw,
+                pitch,
+                ENEMY_TANK_SPREAD,
+                ENEMY_TANK_SHELL_SPEED,
+                ENEMY_TANK_DAMAGE,
+                0.7,
+            );
         }
     }
 
@@ -606,6 +763,7 @@ impl World {
             let step = s.vel * dt;
             let start = s.pos;
             let owner = s.owner;
+            let damage = s.damage;
             s.pos += step;
             s.life -= dt;
             let len = step.length();
@@ -617,6 +775,7 @@ impl World {
                 Ground,
                 Crate(usize),
                 Enemy(usize),
+                EnemyTank(usize),
                 Player,
             }
             // Swept hit test so fast shells do not pass through thin boxes.
@@ -643,6 +802,16 @@ impl World {
                 for (ei, e) in self.enemies.iter().enumerate().filter(|(_, e)| e.alive()) {
                     if let Some(d) = e.aabb().ray_hit(start, dir) {
                         consider(d, Hit::Enemy(ei));
+                    }
+                }
+                for (ti, t) in self
+                    .enemy_tanks
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, t)| t.alive())
+                {
+                    if let Some(d) = t.aabb().ray_hit(start, dir) {
+                        consider(d, Hit::EnemyTank(ti));
                     }
                 }
             } else if self.hp > 0.0 {
@@ -703,8 +872,26 @@ impl World {
                             self.shake = self.shake.max(0.5);
                         }
                     }
+                    Hit::EnemyTank(ti) => {
+                        let t = &mut self.enemy_tanks[ti];
+                        t.hp -= 1;
+                        t.flash = 0.15;
+                        if t.hp <= 0 {
+                            t.respawn = Some(ENEMY_TANK_RESPAWN);
+                            let c = t.aabb().center;
+                            self.enemies_destroyed += 1;
+                            self.explosions.push(Explosion {
+                                pos: c,
+                                age: 0.0,
+                                duration: 1.1,
+                                radius: 7.0,
+                            });
+                            self.burst(c, 26, 16.0, 0);
+                            self.shake = self.shake.max(0.6);
+                        }
+                    }
                     Hit::Player => {
-                        self.hp = (self.hp - ENEMY_DAMAGE).max(0.0);
+                        self.hp = (self.hp - damage).max(0.0);
                         self.hurt_flash = 0.35;
                         self.shake = self.shake.max(0.8);
                         if self.hp <= 0.0 {
@@ -785,6 +972,7 @@ mod tests {
         let mut w = World::new(seed);
         w.targets.clear();
         w.enemies.clear();
+        w.enemy_tanks.clear();
         w.obstacles.clear();
         w
     }
@@ -917,5 +1105,56 @@ mod tests {
             w.update(&go, 1.0 / 60.0);
         }
         assert!(w.tank.pos.z < 10.0 - 2.0 - tank::COLLISION_RADIUS + 0.01);
+    }
+
+    #[test]
+    fn enemy_tank_hunts_and_hits_the_player() {
+        let mut w = quiet_world(17);
+        w.enemy_tanks
+            .push(EnemyTank::new(Vector3::new(30.0, 0.0, -60.0), 0.0));
+        for _ in 0..(60 * 30) {
+            w.update(&Controls::default(), 1.0 / 60.0);
+        }
+        assert!(w.hp < PLAYER_MAX_HP, "hp {}", w.hp);
+        let t = &w.enemy_tanks[0];
+        assert!(t.pos.distance(w.tank.pos) < 60.0, "{:?}", t.pos);
+    }
+
+    #[test]
+    fn player_can_destroy_an_enemy_tank() {
+        let mut w = quiet_world(19);
+        w.enemy_tanks
+            .push(EnemyTank::new(Vector3::new(0.0, 0.0, 30.0), 0.0));
+        let fire = Controls {
+            fire: true,
+            ..Default::default()
+        };
+        for _ in 0..(60 * 8) {
+            // Hold it still in front of the gun and keep it from firing back.
+            let t = &mut w.enemy_tanks[0];
+            t.pos = Vector3::new(0.0, 0.0, 30.0);
+            t.reload = 1000.0;
+            w.update(&fire, 1.0 / 60.0);
+        }
+        assert!(w.enemies_destroyed >= 1);
+    }
+
+    #[test]
+    fn full_battle_stays_sane() {
+        // A busy minute with everything spawned: tanks stay in the arena and apart.
+        let mut w = World::new(21);
+        let go = Controls {
+            throttle: 0.5,
+            steer: 0.3,
+            fire: true,
+            ..Default::default()
+        };
+        for _ in 0..(60 * 60) {
+            w.update(&go, 1.0 / 60.0);
+            for t in w.enemy_tanks.iter().filter(|t| t.alive()) {
+                assert!(t.pos.x.is_finite() && t.pos.z.is_finite());
+                assert!(t.pos.x.abs() <= ARENA_HALF && t.pos.z.abs() <= ARENA_HALF);
+            }
+        }
     }
 }

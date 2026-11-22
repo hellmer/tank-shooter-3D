@@ -108,11 +108,6 @@ impl Tank {
         self.barrel_pitch = approach(self.barrel_pitch, want_pitch, BARREL_PITCH_SPEED * dt);
     }
 
-    /// How far a wheel of this rolling radius has turned, in radians (positive rolls forward).
-    pub fn wheel_angle(&self, radius: f32) -> f32 {
-        self.track_offset / radius
-    }
-
     pub fn can_fire(&self) -> bool {
         self.reload <= 0.0
     }
