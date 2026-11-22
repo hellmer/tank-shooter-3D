@@ -21,6 +21,8 @@ WHEEL = [hexc(c) for c in ("#14140f", "#232318", "#33331f", "#46452a", "#5a5838"
 
 FACE_LIGHT = {"top": 1, "front": 0, "left": 0, "right": -1, "back": -1, "bottom": -3}
 RED = [hexc(c) for c in ("#3a0a0c", "#7a1216", "#d0231f", "#ff5a3c", "#ffc2a8")]
+# Warm, slightly rusty gunmetal for the enemy tanks, so they read apart from the player at a glance.
+OXIDE = [hexc(c) for c in ("#0b0807", "#140f0d", "#1d1613", "#271d19", "#33261f", "#413027", "#523c30", "#664b3b", "#7e5f4b", "#9c7a62")]
 
 # ---------------------------------------------------------------- textures
 
@@ -105,18 +107,19 @@ def box(f, t, group, painter, tr=()):
     return p
 
 
-def plain_armor(seed, base=5, glows=None, panel=(9, 13), hseam=None, glow_pal=None):
-    """Painter: armor on every face; `glows` maps face -> list of strips in face fractions."""
+def plain_armor(seed, base=5, glows=None, panel=(9, 13), hseam=None, glow_pal=None, pal=None):
+    """Painter: armor on every face; `glows` maps face -> list of strips in face fractions.
+    `pal` swaps the steel for another metal (the enemy tank uses OXIDE)."""
     def paint(face, h, w):
         idx = armor_idx(h, w, face, seed + FACES.index(face) * 7, base, panel, hseam)
         g = no_glow(h, w)
         for (fy0, fy1, fx0, fx1) in (glows or {}).get(face, []):
             glow_bar(g, round(fy0 * h), max(round(fy0 * h) + 1, round(fy1 * h)), round(fx0 * w), round(fx1 * w))
-        return rgba(idx, STEEL, (g, glow_pal or CYAN) if (g >= 0).any() else None)
+        return rgba(idx, pal or STEEL, (g, glow_pal or CYAN) if (g >= 0).any() else None)
     return paint
 
 
-def track_painter(seed):
+def track_painter(seed, glow_pal=None):
     """Rubber track: tread links on the outside, road wheels painted on the outer side."""
     def paint(face, h, w):
         y, x = np.mgrid[0:h, 0:w]
@@ -131,7 +134,7 @@ def track_painter(seed):
                 for r in range(2, h - 2, 6):
                     g[r, 2:w - 2] = 2
                     g[r, w // 2] = 3
-            return rgba(idx, RUBBER, (g, CYAN) if face == "top" else None)
+            return rgba(idx, RUBBER, (g, glow_pal or CYAN) if face == "top" else None)
         if face in ("front", "back"):
             idx = 3 - (y * 2 // max(h, 1)) + (y % 2)
             return rgba(idx, RUBBER)

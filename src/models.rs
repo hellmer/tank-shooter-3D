@@ -1,7 +1,9 @@
 //! 3D models made with 3dixel (art/*/model.py) and exported to GLB by tools/export_glb.py,
 //! plus the painted ground (art/terreno/ground.py).
 
-use crate::model_layout::{BARREL_PIVOT, MODEL_SCALE, TURRET_PIVOT, WHEELS, WheelKind};
+use crate::enemy_tank::EnemyTank;
+use crate::enemy_tank_layout;
+use crate::model_layout::{BARREL_PIVOT, MODEL_SCALE, TURRET_PIVOT, WHEELS, Wheel, WheelKind};
 use crate::props_layout;
 use crate::render::with_transform;
 use crate::tank::Tank;
@@ -51,6 +53,14 @@ pub struct TankModels {
     wheel_end: Model,
 }
 
+pub struct EnemyTankModels {
+    hull: Model,
+    turret: Model,
+    barrel: Model,
+    wheel_road: Model,
+    wheel_end: Model,
+}
+
 pub struct TurretModels {
     base: Model,
     head: Model,
@@ -66,6 +76,7 @@ pub struct PropModels {
 pub struct Models {
     pub tank: TankModels,
     pub turret: TurretModels,
+    pub enemy_tank: EnemyTankModels,
     pub props: PropModels,
     ground: Model,
     // Kept alive for as long as the models use them.
@@ -132,6 +143,13 @@ impl Models {
             head: load("models/turret/head.glb")?,
             gun: load("models/turret/gun.glb")?,
         };
+        let enemy_tank = EnemyTankModels {
+            hull: load("models/enemy_tank/hull.glb")?,
+            turret: load("models/enemy_tank/turret.glb")?,
+            barrel: load("models/enemy_tank/barrel.glb")?,
+            wheel_road: load("models/enemy_tank/wheel_road.glb")?,
+            wheel_end: load("models/enemy_tank/wheel_end.glb")?,
+        };
         let props = PropModels {
             crate_: load("models/props/crate.glb")?,
             rock: load("models/props/rock.glb")?,
@@ -168,6 +186,7 @@ impl Models {
         Ok(Models {
             tank,
             turret,
+            enemy_tank,
             props,
             ground,
             _ground_texture: ground_texture,
@@ -248,27 +267,47 @@ impl Models {
     }
 
     pub fn draw_tank<D: RaylibDraw3D>(&self, d: &mut D, t: &Tank) {
-        let up = Vector3::new(0.0, 1.0, 0.0);
-        let side = Vector3::new(1.0, 0.0, 0.0);
         let m = &self.tank;
-        with_transform(t.pos, t.hull_yaw.to_degrees(), up, || {
-            d.draw_model_ex(&m.hull, Vector3::zero(), up, 0.0, scale(), Color::WHITE);
-            for w in WHEELS.iter() {
-                let model = match w.kind {
-                    WheelKind::Road => &m.wheel_road,
-                    WheelKind::End => &m.wheel_end,
-                };
-                with_transform(w.pos, t.wheel_angle(w.radius).to_degrees(), side, || {
-                    d.draw_model_ex(model, Vector3::zero(), up, 0.0, scale(), Color::WHITE);
-                });
-            }
-            with_transform(TURRET_PIVOT, t.turret_yaw.to_degrees(), up, || {
-                d.draw_model_ex(&m.turret, Vector3::zero(), up, 0.0, scale(), Color::WHITE);
-                with_transform(BARREL_PIVOT, -t.barrel_pitch.to_degrees(), side, || {
-                    d.draw_model_ex(&m.barrel, Vector3::zero(), up, 0.0, scale(), Color::WHITE);
-                });
-            });
-        });
+        let pose = TankPose {
+            pos: t.pos,
+            hull_yaw: t.hull_yaw,
+            turret_yaw: t.turret_yaw,
+            barrel_pitch: t.barrel_pitch,
+            track_offset: t.track_offset,
+        };
+        draw_tracked(
+            d,
+            [&m.hull, &m.turret, &m.barrel, &m.wheel_road, &m.wheel_end],
+            &pose,
+            &WHEELS,
+            TURRET_PIVOT,
+            BARREL_PIVOT,
+        );
+    }
+
+    pub fn draw_enemy_tank<D: RaylibDraw3D>(&mut self, d: &mut D, t: &EnemyTank) {
+        if t.flash > 0.0 {
+            self.set_flash(0.8);
+        }
+        let m = &self.enemy_tank;
+        let hull = TankPose {
+            pos: t.pos,
+            hull_yaw: t.hull_yaw,
+            turret_yaw: t.turret_rel_yaw(),
+            barrel_pitch: t.barrel_pitch,
+            track_offset: t.track_offset,
+        };
+        draw_tracked(
+            d,
+            [&m.hull, &m.turret, &m.barrel, &m.wheel_road, &m.wheel_end],
+            &hull,
+            &enemy_tank_layout::WHEELS,
+            enemy_tank_layout::TURRET_PIVOT,
+            enemy_tank_layout::BARREL_PIVOT,
+        );
+        if t.flash > 0.0 {
+            self.set_flash(0.0);
+        }
     }
 
     pub fn draw_enemy<D: RaylibDraw3D>(&mut self, d: &mut D, e: &Enemy) {
@@ -297,4 +336,50 @@ impl Models {
             self.set_flash(0.0);
         }
     }
+}
+
+/// Where a tracked vehicle is and how its moving parts are turned.
+struct TankPose {
+    pos: Vector3,
+    hull_yaw: f32,
+    /// Relative to the hull.
+    turret_yaw: f32,
+    barrel_pitch: f32,
+    /// Distance driven, for the wheels.
+    track_offset: f32,
+}
+
+/// Draws a tank made of hull, turret, barrel and spinning wheels (the player's or an enemy's).
+/// `parts` is hull, turret, barrel, road wheel, end wheel.
+fn draw_tracked<D: RaylibDraw3D>(
+    d: &mut D,
+    parts: [&Model; 5],
+    t: &TankPose,
+    wheels: &[Wheel],
+    turret_pivot: Vector3,
+    barrel_pivot: Vector3,
+) {
+    let up = Vector3::new(0.0, 1.0, 0.0);
+    let side = Vector3::new(1.0, 0.0, 0.0);
+    let [hull, turret, barrel, road, end] = parts;
+    with_transform(t.pos, t.hull_yaw.to_degrees(), up, || {
+        d.draw_model_ex(hull, Vector3::zero(), up, 0.0, scale(), Color::WHITE);
+        for w in wheels {
+            let model = match w.kind {
+                WheelKind::Road => road,
+                WheelKind::End => end,
+            };
+            // Positive rolls forward.
+            let angle = (t.track_offset / w.radius).to_degrees();
+            with_transform(w.pos, angle, side, || {
+                d.draw_model_ex(model, Vector3::zero(), up, 0.0, scale(), Color::WHITE);
+            });
+        }
+        with_transform(turret_pivot, t.turret_yaw.to_degrees(), up, || {
+            d.draw_model_ex(turret, Vector3::zero(), up, 0.0, scale(), Color::WHITE);
+            with_transform(barrel_pivot, -t.barrel_pitch.to_degrees(), side, || {
+                d.draw_model_ex(barrel, Vector3::zero(), up, 0.0, scale(), Color::WHITE);
+            });
+        });
+    });
 }
