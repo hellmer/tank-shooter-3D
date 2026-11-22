@@ -21,6 +21,8 @@ pub struct Controls {
     pub fire: bool,
     /// Start again after the tank is destroyed.
     pub restart: bool,
+    /// Turn the sound off or back on.
+    pub mute: bool,
     pub gamepad_connected: bool,
 }
 
@@ -56,10 +58,14 @@ impl Controls {
             || rl.is_key_down(KeyboardKey::KEY_SPACE);
 
         c.restart |= rl.is_key_pressed(KeyboardKey::KEY_R);
+        c.mute |= rl.is_key_pressed(KeyboardKey::KEY_M);
 
         // Gamepad: left stick drives, right stick aims, right trigger (or RB) fires.
         if rl.is_gamepad_available(GAMEPAD) {
             c.gamepad_connected = true;
+            // Select / Back / View.
+            c.mute |=
+                rl.is_gamepad_button_pressed(GAMEPAD, GamepadButton::GAMEPAD_BUTTON_MIDDLE_LEFT);
             let lx =
                 deadzone(rl.get_gamepad_axis_movement(GAMEPAD, GamepadAxis::GAMEPAD_AXIS_LEFT_X));
             let ly =

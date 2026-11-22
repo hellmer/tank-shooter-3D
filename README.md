@@ -25,6 +25,7 @@ cargo run --release
 | Apuntar   | Ratón                        | Stick derecho            |
 | Disparar  | Clic izquierdo o espacio     | RT (o RB)                |
 | Reiniciar (tras morir) | R                    | A o Start                |
+| Quitar/poner sonido | M                       | Select                   |
 | Salir     | Esc                          |                          |
 
 La torreta y el cañón giran hacia donde apunta la mira a una velocidad limitada. El círculo
@@ -35,6 +36,7 @@ pequeño marca dónde iría el disparo ahora mismo; se pone cian cuando el cañ�
 - `src/input.rs`: junta teclado, ratón y mando en un único `Controls`.
 - `src/tank.rs`: movimiento del casco, giro de la torreta y elevación del cañón.
 - `src/world.rs`: estado del juego (cajas, enemigos, proyectiles, restos, vida, cámara) y colisiones.
+- `src/audio.rs`: reproduce los efectos que pide el mundo (`World::sounds`), más bajos con la distancia y con paneo izquierda/derecha según la cámara, y los motores en bucle.
 - `src/enemy_tank.rs`: tanques enemigos: a dónde quieren ir, cómo esquivan obstáculos y cuándo disparan.
 - `src/render.rs`: dibujo del mundo y el HUD.
 - `src/models.rs`: carga los GLB del tanque y de la torreta enemiga y los dibuja con sus piezas animadas.
@@ -63,6 +65,7 @@ tapa el tiro. Aguantan 5 impactos y reaparecen a los 10 segundos.
 - `art/terreno/ground.py`: pinta la textura del suelo (`assets/textures/ground.png`, 64x64 que se repite cada 6,4 m).
 - `art/common/paint.py`: paletas y pintores de textura compartidos.
 - `tools/3dixel/`: copia del núcleo de 3dixel (licencia MIT) para poder renderizar y exportar sin nada más.
+- `tools/sfx.py`: sintetiza todos los sonidos (cañones, explosiones, impactos de blindaje, cajas, recarga y motores) a `assets/sounds/*.wav` con ondas, ruido filtrado y envolventes. No hay grabaciones: si cambias el script, `python3 tools/sfx.py assets/sounds` los regenera.
 - `tools/export_glb.py`: exporta las piezas de cada modelo a GLB y genera un archivo Rust con sus pivotes. Cada `model.py` dice qué exportar con `exports()` y `layout()`.
 
 Después de cambiar el modelo (hace falta Python 3 con numpy y Pillow):
@@ -84,4 +87,5 @@ En el juego las tiras cian y las toberas brillan sin depender de la luz (textura
 cargo test
 cargo run -- --screenshot captura.png   # juega unos segundos con entrada fija y guarda una captura
 cargo run -- --screenshot lado.png --yaw 100 --pitch -15 --frames 300   # otro ángulo y más tiempo de partida
+cargo run -- --screenshot captura.png --sound   # lo mismo, pero con sonido (el modo captura va en silencio por defecto)
 ```

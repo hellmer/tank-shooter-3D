@@ -1,3 +1,4 @@
+mod audio;
 mod enemy_tank;
 mod enemy_tank_layout;
 mod input;
@@ -23,6 +24,7 @@ fn scripted_controls(frame: u32) -> Controls {
         look_pitch: 0.0,
         fire: frame > 70 && frame.is_multiple_of(50),
         restart: false,
+        mute: false,
         gamepad_connected: false,
     }
 }
@@ -54,6 +56,13 @@ fn main() {
         }
     };
 
+    // No sound in screenshot mode, so automated runs stay silent, unless --sound asks for it.
+    let mut audio = if screenshot.is_none() || args.iter().any(|a| a == "--sound") {
+        audio::Audio::new()
+    } else {
+        None
+    };
+
     let mut world = World::new(0x5eed);
     // Optional starting camera angles (degrees), handy for screenshots: --yaw 90 --pitch -20
     let arg_f32 = |name: &str| {
@@ -83,6 +92,13 @@ fn main() {
         world.update(&controls, step);
 
         let cam = render::camera(&world);
+        if let Some(a) = audio.as_mut() {
+            if controls.mute {
+                a.toggle_mute();
+            }
+            a.update(&world, cam.position, cam.target);
+        }
+        let muted = audio.as_ref().is_some_and(|a| a.muted());
         let mut d = rl.begin_drawing(&thread);
         d.clear_background(models::FOG_COLOR);
         // Sky: darker blue overhead fading into the fog color at the horizon.
@@ -95,7 +111,7 @@ fn main() {
             let mut d3 = d.begin_mode3D(cam);
             render::draw_world(&mut d3, &world, models.as_mut());
         }
-        render::draw_hud(&mut d, &world, cam, controls.gamepad_connected);
+        render::draw_hud(&mut d, &world, cam, controls.gamepad_connected, muted);
         drop(d);
 
         frame += 1;

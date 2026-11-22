@@ -360,7 +360,7 @@ pub fn camera(w: &World) -> Camera3D {
     Camera3D::perspective(eye, target, Vector3::new(0.0, 1.0, 0.0), 60.0)
 }
 
-pub fn draw_hud(d: &mut RaylibDrawHandle, w: &World, cam: Camera3D, gamepad: bool) {
+pub fn draw_hud(d: &mut RaylibDrawHandle, w: &World, cam: Camera3D, gamepad: bool, muted: bool) {
     let sw = d.get_screen_width();
     let sh = d.get_screen_height();
     let (cx, cy) = (sw / 2, sh / 2);
@@ -485,10 +485,19 @@ pub fn draw_hud(d: &mut RaylibDrawHandle, w: &World, cam: Camera3D, gamepad: boo
     }
 
     let help = if gamepad {
-        "Mando: stick izq. mover | stick der. apuntar | RT disparar"
+        "Mando: stick izq. mover | stick der. apuntar | RT disparar | Select sonido"
     } else {
-        "WASD mover | raton apuntar | clic izq. / espacio disparar | Esc salir"
+        "WASD mover | raton apuntar | clic izq. / espacio disparar | M sonido | Esc salir"
     };
+    if muted {
+        d.draw_text(
+            "SIN SONIDO",
+            sw - 160,
+            50,
+            20,
+            Color::new(220, 220, 220, 160),
+        );
+    }
     d.draw_text(help, 20, sh - 34, 20, Color::new(220, 220, 220, 200));
     d.draw_fps(sw - 100, 20);
 }

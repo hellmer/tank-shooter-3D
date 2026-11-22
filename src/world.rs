@@ -219,6 +219,31 @@ pub struct Debris {
     pub kind: u8,
 }
 
+/// A sound the game wants played this frame, and where it happens.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Sfx {
+    PlayerCannon,
+    EnemyCannon,
+    TurretShot,
+    /// A shell bursting on the ground, cover or a crate.
+    Impact,
+    /// Something big blowing up: a turret, a tank.
+    Explosion,
+    /// The player's armor taking a hit.
+    HitArmor,
+    /// The player's shell hitting an enemy that survives it.
+    HitEnemy,
+    CrateBreak,
+    /// The player's gun is loaded again.
+    Reload,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct SoundEvent {
+    pub sfx: Sfx,
+    pub pos: Vector3,
+}
+
 pub struct OrbitCamera {
     pub yaw: f32,
     pub pitch: f32,
@@ -253,6 +278,8 @@ pub struct World {
     /// Camera shake strength; decays every frame.
     pub shake: f32,
     pub time: f32,
+    /// Sounds started during the last `update`, for the audio code to play.
+    pub sounds: Vec<SoundEvent>,
     seed: u64,
     rng: Rng,
 }
@@ -280,6 +307,7 @@ impl World {
             hurt_flash: 0.0,
             shake: 0.0,
             time: 0.0,
+            sounds: Vec::new(),
             seed,
             rng: Rng::new(seed),
         };
@@ -478,7 +506,12 @@ impl World {
         }
     }
 
+    fn sound(&mut self, sfx: Sfx, pos: Vector3) {
+        self.sounds.push(SoundEvent { sfx, pos });
+    }
+
     pub fn update(&mut self, c: &Controls, dt: f32) {
+        self.sounds.clear();
         self.time += dt;
         if c.restart && !self.player_alive() {
             *self = World::new(self.seed.wrapping_add(1));
@@ -496,7 +529,12 @@ impl World {
         } else {
             Controls::default()
         };
+        let was_loading = self.tank.reload > 0.0;
         self.tank.drive(&drive, dt);
+        if was_loading && self.tank.can_fire() && self.player_alive() {
+            let at = self.tank.turret_pivot_world();
+            self.sound(Sfx::Reload, at);
+        }
         let blockers: Vec<Aabb> = self
             .targets
             .iter()
@@ -534,6 +572,7 @@ impl World {
         if self.player_alive() && c.fire && self.tank.can_fire() {
             self.tank.reload = tank::RELOAD_TIME;
             let muzzle = self.tank.muzzle();
+            self.sound(Sfx::PlayerCannon, muzzle);
             self.shells.push(Shell {
                 pos: muzzle,
                 vel: self.tank.barrel_dir() * SHELL_SPEED,
@@ -625,6 +664,7 @@ impl World {
                 ENEMY_DAMAGE,
                 0.5,
             );
+            self.sound(Sfx::TurretShot, muzzle);
         }
     }
 
@@ -753,6 +793,7 @@ impl World {
                 ENEMY_TANK_DAMAGE,
                 0.7,
             );
+            self.sound(Sfx::EnemyCannon, muzzle);
         }
     }
 
@@ -834,8 +875,9 @@ impl World {
                     radius: 2.2,
                 });
                 match h {
-                    Hit::Ground => {}
+                    Hit::Ground => self.sound(Sfx::Impact, at),
                     Hit::Crate(ti) => {
+                        self.sound(Sfx::Impact, at);
                         let t = &mut self.targets[ti];
                         t.hp -= 1;
                         t.flash = 0.15;
@@ -852,13 +894,24 @@ impl World {
                                 radius: 5.0,
                             });
                             self.burst(c, 14, 12.0, 1);
+                            self.sound(Sfx::CrateBreak, c);
                         }
                     }
                     Hit::Enemy(ei) => {
                         let e = &mut self.enemies[ei];
                         e.hp -= 1;
                         e.flash = 0.15;
-                        if e.hp <= 0 {
+                        let destroyed = e.hp <= 0;
+                        self.sound(
+                            if destroyed {
+                                Sfx::Explosion
+                            } else {
+                                Sfx::HitEnemy
+                            },
+                            at,
+                        );
+                        let e = &mut self.enemies[ei];
+                        if destroyed {
                             e.respawn = Some(ENEMY_RESPAWN);
                             let c = e.aabb().center;
                             self.enemies_destroyed += 1;
@@ -876,7 +929,17 @@ impl World {
                         let t = &mut self.enemy_tanks[ti];
                         t.hp -= 1;
                         t.flash = 0.15;
-                        if t.hp <= 0 {
+                        let destroyed = t.hp <= 0;
+                        self.sound(
+                            if destroyed {
+                                Sfx::Explosion
+                            } else {
+                                Sfx::HitEnemy
+                            },
+                            at,
+                        );
+                        let t = &mut self.enemy_tanks[ti];
+                        if destroyed {
                             t.respawn = Some(ENEMY_TANK_RESPAWN);
                             let c = t.aabb().center;
                             self.enemies_destroyed += 1;
@@ -893,6 +956,15 @@ impl World {
                     Hit::Player => {
                         self.hp = (self.hp - damage).max(0.0);
                         self.hurt_flash = 0.35;
+                        let destroyed = self.hp <= 0.0;
+                        self.sound(
+                            if destroyed {
+                                Sfx::Explosion
+                            } else {
+                                Sfx::HitArmor
+                            },
+                            at,
+                        );
                         self.shake = self.shake.max(0.8);
                         if self.hp <= 0.0 {
                             let c = self.player_aabb().center;
@@ -1155,6 +1227,32 @@ mod tests {
                 assert!(t.pos.x.is_finite() && t.pos.z.is_finite());
                 assert!(t.pos.x.abs() <= ARENA_HALF && t.pos.z.abs() <= ARENA_HALF);
             }
+        }
+    }
+
+    #[test]
+    fn firing_and_hits_make_sounds() {
+        let mut w = quiet_world(23);
+        w.targets.push(Target {
+            aabb: Aabb {
+                center: Vector3::new(0.0, 1.5, 30.0),
+                half: Vector3::new(2.0, 1.5, 2.0),
+            },
+            hp: TARGET_HP,
+            flash: 0.0,
+            respawn: None,
+        });
+        let fire = Controls {
+            fire: true,
+            ..Default::default()
+        };
+        let mut heard = Vec::new();
+        for _ in 0..(60 * 4) {
+            w.update(&fire, 1.0 / 60.0);
+            heard.extend(w.sounds.iter().map(|s| s.sfx));
+        }
+        for want in [Sfx::PlayerCannon, Sfx::Impact, Sfx::CrateBreak, Sfx::Reload] {
+            assert!(heard.contains(&want), "no {want:?} in {heard:?}");
         }
     }
 }
