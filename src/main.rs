@@ -96,7 +96,7 @@ fn main() {
             if controls.mute {
                 a.toggle_mute();
             }
-            a.update(&world, cam.position, cam.target);
+            a.update(&world, cam.position, cam.target, step);
         }
         let muted = audio.as_ref().is_some_and(|a| a.muted());
         let mut d = rl.begin_drawing(&thread);
