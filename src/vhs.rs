@@ -1,12 +1,15 @@
 //! VHS tape look (vhs_mpalko, two passes), ported from metroidvania3D-rust. The frame is drawn
 //! into an off-screen buffer, then pass 0 shrinks it to VHS resolution in YIQ and pass 1 scales
-//! it back to the window. F3 or `--no-vhs` turns it off.
+//! it back to the window, with CRT scanlines. F3 or `--no-vhs` turns it off.
 
 use raylib::ffi;
 use std::ffi::{CString, c_void};
 
 /// 1 matches the original shader; lower is softer.
 const VHS_INTENSITY: f32 = 0.7;
+/// TV lines over the whole image (240, as in metroidvania3D-rust) and how much darker the gaps get.
+const SCANLINES: f32 = 240.0;
+const SCANLINE_STRENGTH: f32 = 0.25;
 
 pub struct Vhs {
     pub enabled: bool,
@@ -60,7 +63,7 @@ fn load_float_render_texture(width: i32, height: i32) -> ffi::RenderTexture2D {
 impl Vhs {
     /// Call after the window exists.
     pub fn new(enabled: bool) -> Self {
-        Vhs {
+        let vhs = Vhs {
             enabled,
             pass: [
                 load_pass(include_str!("../assets/shaders/vhs_pass0.fs")),
@@ -69,7 +72,11 @@ impl Vhs {
             scene: unsafe { std::mem::zeroed() },
             yiq: unsafe { std::mem::zeroed() },
             size: (0, 0),
-        }
+        };
+        let flt = ffi::ShaderUniformDataType::SHADER_UNIFORM_FLOAT;
+        set_f(vhs.pass[1], "lines", &[SCANLINES], flt);
+        set_f(vhs.pass[1], "strength", &[SCANLINE_STRENGTH], flt);
+        vhs
     }
 
     fn unload_targets(&mut self) {

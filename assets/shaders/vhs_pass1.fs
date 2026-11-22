@@ -7,6 +7,8 @@
    Basado en "VHS Compression" de mpalko: https://www.shadertoy.com/view/tsfXWj
    (licencia de Shadertoy: CC BY-NC-SA 3.0). El filtro bicúbico es de
    http://www.java-gaming.org/index.php?topic=35123.0
+   Al final añade las scanlines del metroidvania (scanlines.fs): oscurece el hueco entre 'lines' líneas,
+   con el brillo medio de la franja que cubre cada píxel para que no salgan bandas.
 */
 
 in vec2 fragTexCoord;
@@ -15,6 +17,8 @@ in vec4 fragColor;
 uniform sampler2D texture0;     // la salida de la pasada 1 (YIQ), con filtro bilineal
 uniform vec2 outputSize;        // tamaño de la ventana: el mismo que el del búfer de la pasada 1
 uniform float intensity;        // VHS_INTENSITY de vhs.rs; con 1 queda como el original
+uniform float lines;            // SCANLINES de vhs.rs: líneas del televisor en toda la imagen
+uniform float strength;         // SCANLINE_STRENGTH de vhs.rs: 0 = sin scanlines
 
 out vec4 finalColor;
 
@@ -74,5 +78,11 @@ void main()
 
     float luminance = textureBicubic(texture0, uvLuminance).x;
     vec2 chroma = textureBicubic(texture0, uvChroma).yz;
-    finalColor = vec4(vec3(luminance, chroma)*yiq2rgb, 1.0);
+    vec3 color = vec3(luminance, chroma)*yiq2rgb;
+
+    float y = uv.y*lines;                                   // en líneas: cada entero, una línea
+    float d = max(fwidth(y), 1e-4);                         // líneas que cubre este píxel
+    float blur = max(sin(3.14159265*d)/(3.14159265*d), 0.0);    // media del coseno sobre el píxel
+    float line = 0.5 + 0.5*cos(6.2831853*y)*blur;           // 1 en el centro de cada línea, 0 entre dos
+    finalColor = vec4(color*(1.0 - strength*(1.0 - line)), 1.0);
 }
