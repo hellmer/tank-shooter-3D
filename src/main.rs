@@ -9,6 +9,7 @@ mod props_layout;
 mod render;
 mod tank;
 mod turret_layout;
+mod vhs;
 mod world;
 
 use input::Controls;
@@ -81,6 +82,7 @@ fn main() {
     }
     let mut frame: u32 = 0;
     let mut mouse_look = input::MouseLook::new();
+    let mut vhs = vhs::Vhs::new(!args.iter().any(|a| a == "--no-vhs"));
 
     while !rl.window_should_close() {
         let dt = rl.get_frame_time().min(1.0 / 20.0);
@@ -103,7 +105,11 @@ fn main() {
             a.update(&world, cam.position, cam.target, step);
         }
         let muted = audio.as_ref().is_some_and(|a| a.muted());
+        if rl.is_key_pressed(KeyboardKey::KEY_F3) {
+            vhs.enabled = !vhs.enabled;
+        }
         let mut d = rl.begin_drawing(&thread);
+        let vhs_on = vhs.begin();
         d.clear_background(models::FOG_COLOR);
         // Sky: darker blue overhead fading into the fog color at the horizon.
         let (sw, sh) = (d.get_screen_width(), d.get_screen_height());
@@ -116,6 +122,7 @@ fn main() {
             render::draw_world(&mut d3, &world, models.as_mut());
         }
         render::draw_hud(&mut d, &world, cam, controls.gamepad_connected, muted);
+        vhs.end(vhs_on);
         drop(d);
 
         frame += 1;
